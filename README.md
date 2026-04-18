@@ -73,7 +73,7 @@ None of this leaves your machine.
 
 **Windows only.** The app uses Win32 APIs for transparent click-through overlays and won't run on macOS or Linux.
 
-1. Download the latest installer from [Releases](https://github.com/joshblaszczyk/CS2-overlay-/releases).
+1. Download the latest installer from [Releases](https://github.com/joshblaszczyk/cs2-stats-overlay/releases).
 2. Run the `.exe`. Windows will show the publisher name as **Joshua Blaszczyk** (the installer is code-signed via Azure Artifact Signing). On first run SmartScreen may still show a "publisher reputation building" warning while the cert earns reputation — click "More info" → "Run anyway".
 3. Follow the in-app setup. You'll need to enter API keys (one-time) and sign into csstats.gg once.
 4. Launch CS2 with `-console` in your launch options. The app writes a GSI config file to CS2's cfg folder automatically.
@@ -91,7 +91,7 @@ All keys are stored encrypted at rest using Electron's `safeStorage` (Windows DP
 ## Build from source
 
 ```bash
-git clone https://github.com/joshblaszczyk/CS2-overlay-.git
+git clone https://github.com/joshblaszczyk/cs2-stats-overlay.git
 cd cs2-stats-overlay
 npm install
 cp .env.example .env  # optional, for dev with env-var API keys

@@ -396,11 +396,11 @@ function createTray() {
     { type: 'separator' },
     {
       label: 'GitHub',
-      click: () => shell.openExternal('https://github.com/joshblaszczyk/CS2-overlay-'),
+      click: () => shell.openExternal('https://github.com/joshblaszczyk/cs2-stats-overlay'),
     },
     {
       label: 'Report Issue',
-      click: () => shell.openExternal('https://github.com/joshblaszczyk/CS2-overlay-/issues/new'),
+      click: () => shell.openExternal('https://github.com/joshblaszczyk/cs2-stats-overlay/issues/new'),
     },
     { type: 'separator' },
     {

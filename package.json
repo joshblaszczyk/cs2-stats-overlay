@@ -2,13 +2,13 @@
   "name": "cs2-stats-overlay",
   "version": "0.1.0",
   "description": "CS2 in-game stats overlay aggregating Leetify, csstats.gg, FACEIT, and Steam — FACEIT safe.",
-  "homepage": "https://github.com/joshblaszczyk/CS2-overlay-",
+  "homepage": "https://github.com/joshblaszczyk/cs2-stats-overlay",
   "bugs": {
-    "url": "https://github.com/joshblaszczyk/CS2-overlay-/issues"
+    "url": "https://github.com/joshblaszczyk/cs2-stats-overlay/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/joshblaszczyk/CS2-overlay-.git"
+    "url": "https://github.com/joshblaszczyk/cs2-stats-overlay.git"
   },
   "main": "./src/main/index.js",
   "scripts": {
@@ -32,7 +32,7 @@
       {
         "provider": "github",
         "owner": "joshblaszczyk",
-        "repo": "CS2-overlay-"
+        "repo": "cs2-stats-overlay"
       }
     ],
     "win": {

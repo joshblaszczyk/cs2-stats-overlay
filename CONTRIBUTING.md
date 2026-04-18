@@ -12,7 +12,7 @@ Thanks for considering a contribution. This doc covers local setup, project layo
 ## Local setup
 
 ```bash
-git clone https://github.com/joshblaszczyk/CS2-overlay-.git
+git clone https://github.com/joshblaszczyk/cs2-stats-overlay.git
 cd cs2-stats-overlay
 npm install
 cp .env.example .env    # fill in your own dev API keys
@@ -123,4 +123,4 @@ If you're touching main process or preload, read [SECURITY.md](SECURITY.md) firs
 
 ## Questions?
 
-Open a [discussion](https://github.com/joshblaszczyk/CS2-overlay-/discussions) or an [issue](https://github.com/joshblaszczyk/CS2-overlay-/issues). I'll respond, eventually.
+Open a [discussion](https://github.com/joshblaszczyk/cs2-stats-overlay/discussions) or an [issue](https://github.com/joshblaszczyk/cs2-stats-overlay/issues). I'll respond, eventually.
