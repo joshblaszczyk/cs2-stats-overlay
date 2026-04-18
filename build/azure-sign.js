@@ -66,8 +66,14 @@ exports.default = async function sign(config) {
       throw new Error('[azure-sign] TRUSTED_SIGNING_DLIB_PATH not set or file missing. Install the NuGet package Microsoft.Trusted.Signing.Client and point TRUSTED_SIGNING_DLIB_PATH at Azure.CodeSigning.Dlib.dll');
     }
 
+    // signtool.exe is shipped with the Windows SDK but is NOT on PATH by
+    // default on GitHub's windows-latest runners. The release workflow
+    // resolves it with a Get-ChildItem search and exports SIGNTOOL as the
+    // absolute path; fall back to the bare name so local dev still works
+    // when signtool IS on PATH.
+    const signtoolExe = process.env.SIGNTOOL || 'signtool';
     try {
-      execFileSync('signtool', [
+      execFileSync(signtoolExe, [
         'sign',
         '/v',
         '/debug',
