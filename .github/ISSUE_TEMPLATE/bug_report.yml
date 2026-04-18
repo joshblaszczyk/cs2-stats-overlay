@@ -1,0 +1,80 @@
+name: Bug Report
+description: Something broken with the overlay? Report it here.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. Before opening, please check existing issues to avoid duplicates.
+
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Find this in the installer filename or the tray menu → About.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: e.g. Windows 11 23H2 / Windows 10 22H2
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: gamemode
+    attributes:
+      label: Game mode where the bug happened
+      options:
+        - Premier
+        - Competitive
+        - Wingman
+        - FACEIT
+        - Retakes
+        - Deathmatch
+        - Casual
+        - Other
+        - Not in a game
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch the overlay
+        2. Start a match in ...
+        3. Press Tab
+        4. Observe that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Open the tray menu → Open Logs. Paste anything that looks relevant.
+      render: text
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have searched existing issues for duplicates
+          required: true
+        - label: I am using the latest release
+          required: true

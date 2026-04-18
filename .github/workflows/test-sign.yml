@@ -1,0 +1,97 @@
+name: Test Azure Signing
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-sign:
+    runs-on: windows-latest
+
+    steps:
+      - name: Create throwaway test binary
+        shell: pwsh
+        run: |
+          # Copy an unsigned .exe from the runner to a temp location so we can sign it.
+          # notepad.exe is protected; take a small, writable one from the MSBuild tools instead.
+          $candidates = @(
+            "$env:ProgramFiles\dotnet\dotnet.exe",
+            "$env:SystemRoot\System32\curl.exe",
+            "$env:SystemRoot\System32\tar.exe"
+          )
+          $src = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $src) { throw "No test binary candidate found on runner" }
+          $dst = "$env:RUNNER_TEMP\test-target.exe"
+          Copy-Item -Path $src -Destination $dst -Force
+          Write-Host "Copied $src -> $dst"
+          echo "TEST_TARGET=$dst" >> $env:GITHUB_ENV
+
+      - name: Download Microsoft.Trusted.Signing.Client DLIB
+        shell: pwsh
+        run: |
+          $work = "$env:RUNNER_TEMP\trusted-signing"
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $pkgPath = "$work\client.nupkg"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client" -OutFile $pkgPath
+
+          # Rename to .zip so Expand-Archive accepts it
+          $zipPath = "$work\client.zip"
+          Copy-Item -Path $pkgPath -Destination $zipPath -Force
+          Expand-Archive -Path $zipPath -DestinationPath "$work\extracted" -Force
+
+          $dlib = Get-ChildItem -Path "$work\extracted" -Recurse -Filter "Azure.CodeSigning.Dlib.dll" |
+                  Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
+          if (-not $dlib) { throw "DLIB not found in NuGet package" }
+          echo "DLIB_PATH=$($dlib.FullName)" >> $env:GITHUB_ENV
+          Write-Host "DLIB: $($dlib.FullName)"
+
+      - name: Build metadata.json
+        shell: pwsh
+        run: |
+          $metadata = @{
+            Endpoint               = "${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}"
+            CodeSigningAccountName = "${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}"
+            CertificateProfileName = "${{ secrets.AZURE_CODE_SIGNING_PROFILE }}"
+            CorrelationId          = "github-actions-test-$(Get-Date -Format 'yyyyMMddHHmmss')"
+          } | ConvertTo-Json
+          $path = "$env:RUNNER_TEMP\metadata.json"
+          Set-Content -Path $path -Value $metadata
+          echo "METADATA_PATH=$path" >> $env:GITHUB_ENV
+          Write-Host "Metadata written to $path"
+
+      - name: Find signtool.exe
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+                      Where-Object { $_.FullName -match "x64" } |
+                      Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe not found on runner" }
+          echo "SIGNTOOL=$($signtool.FullName)" >> $env:GITHUB_ENV
+          Write-Host "signtool: $($signtool.FullName)"
+
+      - name: Sign the test binary
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID:     ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID:     ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          & $env:SIGNTOOL sign `
+            /v `
+            /debug `
+            /fd SHA256 `
+            /tr "http://timestamp.acs.microsoft.com" `
+            /td SHA256 `
+            /dlib $env:DLIB_PATH `
+            /dmdf $env:METADATA_PATH `
+            $env:TEST_TARGET
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit $LASTEXITCODE" }
+
+      - name: Verify the signature
+        shell: pwsh
+        run: |
+          & $env:SIGNTOOL verify /pa /v $env:TEST_TARGET
+          if ($LASTEXITCODE -ne 0) { throw "signature verification failed" }
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "[OK] Azure signing works in GitHub Actions"
+          Write-Host "=========================================="

@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 0
+
+      - name: Build renderer + main
+        run: npx electron-vite build
+
+      - name: Install Azure Artifact Signing DLIB
+        if: env.AZURE_CODE_SIGNING_ENDPOINT != ''
+        shell: pwsh
+        run: |
+          # Download the Microsoft.Trusted.Signing.Client NuGet package, extract the DLIB,
+          # and export its path as TRUSTED_SIGNING_DLIB_PATH for the signing step.
+          $pkgDir = "$env:RUNNER_TEMP\trusted-signing"
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+          $pkgPath = "$pkgDir\client.nupkg"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client" -OutFile $pkgPath
+          Expand-Archive -Path $pkgPath -DestinationPath $pkgDir -Force
+          $dlib = Get-ChildItem -Path $pkgDir -Recurse -Filter "Azure.CodeSigning.Dlib.dll" | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
+          if (-not $dlib) { throw "Could not find Azure.CodeSigning.Dlib.dll in the NuGet package" }
+          echo "TRUSTED_SIGNING_DLIB_PATH=$($dlib.FullName)" >> $env:GITHUB_ENV
+          Write-Host "DLIB path: $($dlib.FullName)"
+        env:
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+
+      - name: Install AzureSignTool (Key Vault path)
+        if: env.AZURE_KEYVAULT_URI != ''
+        shell: pwsh
+        run: |
+          dotnet tool install --global AzureSignTool
+          echo "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+        env:
+          AZURE_KEYVAULT_URI: ${{ secrets.AZURE_KEYVAULT_URI }}
+
+      - name: Package NSIS installer
+        run: npx electron-builder --win --config
+        env:
+          # Azure Trusted Signing / Key Vault credentials.
+          # If these are unset, build/azure-sign.js skips signing silently.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CODE_SIGNING_ENDPOINT: ${{ secrets.AZURE_CODE_SIGNING_ENDPOINT }}
+          AZURE_CODE_SIGNING_ACCOUNT: ${{ secrets.AZURE_CODE_SIGNING_ACCOUNT }}
+          AZURE_CODE_SIGNING_PROFILE: ${{ secrets.AZURE_CODE_SIGNING_PROFILE }}
+          AZURE_KEYVAULT_URI: ${{ secrets.AZURE_KEYVAULT_URI }}
+          AZURE_KEYVAULT_CERT_NAME: ${{ secrets.AZURE_KEYVAULT_CERT_NAME }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs2-stats-overlay-windows
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

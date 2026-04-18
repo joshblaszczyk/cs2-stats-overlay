@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+
+# Local tooling + machine-specific state
+.claude/
+.cs2-snapshot/
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+.steam-token
+browser-data/
+gsi-token.txt
+*.pfx
+*.p12
+*.cer
+*.crt
+*.key
+*.pem
+cert.*
+certificate.*
+codesign*
+test-azure-sign.ps1
+
+# Build artifacts
+out/
+dist/
+release/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
+*.swp
+
+# User data (local dev)
+screenshot_overlay.png
+validate-*.png
+icon-cell*.png
+icon-strip.png
+icon-16.png
+icon-20.png
+icon-24.png
+icon-32.png
+icon-48.png
+icon-64.png
+icon-128.png
+icon-256.png
+icon-1024.png
+Gemini_Generated_Image_*.png
+mock-*.html
+mock-*.js
+detail-panel-preview.png
+
+# Test output
+test-results/
+coverage/
+
+# Temp
+tmp/
+*.tmp
