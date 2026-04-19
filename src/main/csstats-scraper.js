@@ -52,8 +52,14 @@ const INTER_REQUEST_MS = 500;
 const PAGE_NAV_TIMEOUT_MS = 20000;
 const MATCHES_NAV_TIMEOUT_MS = 30000;
 const CLOUDFLARE_CHALLENGE_TIMEOUT_MS = 6000;
-const STATS_WAIT_TIMEOUT_MS = 4000;
-const MATCHES_WAIT_TIMEOUT_MS = 6000;
+// 4s was too tight — players whose profile took longer than that to
+// hydrate produced kd=null in the cache, and findMissingFields did not
+// retry them (kd==null was indistinguishable from a truly-private
+// profile). 8s lets slow-hydrating profiles finish rendering before we
+// parse. Matches tab is bumped proportionally because heavy profiles
+// (1000+ rows) were the ones missing recent-30 aggregates.
+const STATS_WAIT_TIMEOUT_MS = 8000;
+const MATCHES_WAIT_TIMEOUT_MS = 10000;
 
 class RateLimitedError extends Error {
   constructor(msg) { super(msg); this.name = 'RateLimitedError'; }
@@ -277,6 +283,16 @@ function findMissingFields(data) {
   }
   if (data.faceitLevel != null && !data.faceitNickname) missing.push('faceitNick');
   if (data.kd != null && data.damage == null) missing.push('csstatsDetail');
+  // Recovery path: if lifetime stats are null but we have rank evidence
+  // (premier or faceit), the profile almost certainly has public stats —
+  // the initial scrape just raced the hydration timeout. Top-up will
+  // run a fresh full scrape and overwrite null fields. If the profile
+  // IS genuinely private, every retry returns the same nulls — bounded
+  // traffic since we only retry once per cache-valid cycle.
+  if (data.kd == null && (data.premier != null || data.faceitLevel != null)
+      && !missing.includes('csstatsDetail')) {
+    missing.push('csstatsDetail');
+  }
   return missing;
 }
 
@@ -308,15 +324,29 @@ async function scrapeAllPlayers(steamIds) {
     return results;
   }
 
-  // Partition into cache-hits, cache-hits needing top-up, and misses.
+  // Partition into cache-misses (fetch), lightweight top-ups, and
+  // heavy top-ups. csstatsDetail is a "heavy" top-up because topUpEntry
+  // just calls scrapePlayer internally — no point running that through
+  // the separate top-up pipeline. Route those entries through the fetch
+  // path so they get processed alongside cache misses.
+  //
+  // Prior bug: the top-up path was gated on `toFetch.length === 0`,
+  // meaning any batch with new players to fetch would skip top-ups
+  // entirely. Cache entries with stale-null lifetime stats were
+  // announced as top-up candidates but never actually re-scraped.
   const toFetch = [];
-  const toTopUp = [];
+  const toTopUp = []; // only lightweight top-ups (csrep, faceitNick)
   for (const id of steamIds) {
     const entry = getCachedEntry(id);
     if (entry && isFresh(entry)) {
       results[id] = entry.data;
       const missing = findMissingFields(entry.data);
-      if (missing.length) toTopUp.push({ id, entry, missing });
+      if (missing.includes('csstatsDetail')) {
+        // Heavy top-up — re-fetch entirely.
+        toFetch.push(id);
+      } else if (missing.length) {
+        toTopUp.push({ id, entry, missing });
+      }
     } else {
       toFetch.push(id);
     }
@@ -329,28 +359,34 @@ async function scrapeAllPlayers(steamIds) {
     return results;
   }
 
-  // Top-up only path — everything cached but some need missing fields.
-  if (toFetch.length === 0 && toTopUp.length > 0) {
+  // Lightweight top-up pass (csrep / faceitNick). Runs even when there
+  // are fetches queued — they execute after the fetch batch below.
+  const runLightTopUps = async (b) => {
+    if (toTopUp.length === 0) return;
+    for (let i = 0; i < toTopUp.length; i += PARALLEL_TABS) {
+      if (!b.connected) break;
+      const chunk = toTopUp.slice(i, i + PARALLEL_TABS);
+      await Promise.all(chunk.map(async ({ id, entry, missing }) => {
+        try {
+          const page = await b.newPage();
+          try {
+            const patched = await topUpEntry(page, id, entry.data, missing);
+            if (patched) {
+              patchCachedEntry(id, patched);
+              results[id] = patched;
+            }
+          } finally { try { await page.close(); } catch {} }
+        } catch (err) {
+          console.log(`[CSScrape] Top-up failed for ${id}:`, err.message?.slice(0, 150));
+        }
+      }));
+    }
+  };
+
+  if (toFetch.length === 0) {
     try {
       const b = await ensureBrowser();
-      for (let i = 0; i < toTopUp.length; i += PARALLEL_TABS) {
-        if (!b.connected) break;
-        const chunk = toTopUp.slice(i, i + PARALLEL_TABS);
-        await Promise.all(chunk.map(async ({ id, entry, missing }) => {
-          try {
-            const page = await b.newPage();
-            try {
-              const patched = await topUpEntry(page, id, entry.data, missing);
-              if (patched) {
-                patchCachedEntry(id, patched);
-                results[id] = patched;
-              }
-            } finally { try { await page.close(); } catch {} }
-          } catch (err) {
-            console.log(`[CSScrape] Top-up failed for ${id}:`, err.message?.slice(0, 150));
-          }
-        }));
-      }
+      await runLightTopUps(b);
     } catch (e) {
       console.log('[CSScrape] Top-up browser failed:', e.message);
     }
@@ -438,6 +474,13 @@ async function scrapeAllPlayers(steamIds) {
       }
       console.log(`[CSScrape] After retry: ${Object.keys(results).length}/${steamIds.length} players`);
     }
+  }
+
+  // Run the lightweight top-up batch now that fetches are done. If the
+  // scraper rate-limited or the browser died we skip to avoid piling on.
+  if (!rateLimited && !browserDead && b && b.connected) {
+    try { await runLightTopUps(b); }
+    catch (err) { console.log('[CSScrape] Light top-ups failed:', err.message?.slice(0, 150)); }
   }
 
   // Set final status. 'ok' if at least one player has real stats.
