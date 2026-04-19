@@ -476,19 +476,21 @@ export default function Settings({ settings, onSave, onClose }) {
                 </span>
               )}
             </span>
-            {updatePhase?.phase === 'downloaded' ? (
-              <button className="settings-btn settings-btn-primary" onClick={() => window.cs2stats?.installUpdate?.()}>
-                Restart
-              </button>
-            ) : (
-              <button
-                className="settings-btn"
-                disabled={updatePhase?.phase === 'checking' || updatePhase?.phase === 'downloading'}
-                onClick={handleCheckForUpdate}
-              >
-                {updatePhase?.phase === 'checking' ? 'Checking…' : 'Check'}
-              </button>
-            )}
+            <button
+              className="settings-btn"
+              disabled={['checking', 'available', 'downloading', 'downloaded'].includes(updatePhase?.phase)}
+              onClick={handleCheckForUpdate}
+            >
+              {(() => {
+                switch (updatePhase?.phase) {
+                  case 'checking':    return 'Checking…';
+                  case 'available':   return 'Downloading…';
+                  case 'downloading': return `Downloading ${updatePhase.percent ?? 0}%`;
+                  case 'downloaded':  return 'Restarting…';
+                  default:            return 'Check';
+                }
+              })()}
+            </button>
           </div>
           <div className="settings-action-row">
             <span>Uninstall (GSI config + auto-launch + app data)</span>

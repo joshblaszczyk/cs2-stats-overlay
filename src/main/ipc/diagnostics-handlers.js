@@ -10,7 +10,7 @@ const { shell, clipboard } = require('electron');
 // where `<tag>` is a short human label describing this build (not just
 // the version, so a user with stale cache or confused install can tell
 // at a glance which build they're looking at).
-const BUILD_TAG = 'v0.1.7-fix-updater-filename';
+const BUILD_TAG = 'v0.1.8-auto-restart-after-update';
 
 function registerDiagnosticsHandlers(ipcMain, ctx) {
   const { app } = ctx;

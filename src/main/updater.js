@@ -51,7 +51,18 @@ function install(win) {
     percent: Math.round(p.percent || 0),
     bytesPerSecond: p.bytesPerSecond || 0,
   }));
-  autoUpdater.on('update-downloaded', (info) => send({ phase: 'downloaded', version: info?.version }));
+  autoUpdater.on('update-downloaded', (info) => {
+    send({ phase: 'downloaded', version: info?.version });
+    // All user state lives on disk (settings.json, csstats-cache.json,
+    // etc.) so there's no in-memory cost to quitting immediately.
+    // The 1.5s delay gives the renderer a moment to paint "Restarting…"
+    // before the process dies, and absorbs any last IPC chatter.
+    setTimeout(() => {
+      console.log('[Updater] Auto-restarting to apply update');
+      try { autoUpdater.quitAndInstall(false, true); }
+      catch (err) { console.log('[Updater] quitAndInstall failed:', err.message); }
+    }, 1500);
+  });
   autoUpdater.on('error', (err) => send({ phase: 'error', message: err?.message || String(err) }));
 
   // First check after a short delay so startup is not blocked.

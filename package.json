@@ -1,6 +1,6 @@
 {
   "name": "cs2-stats-overlay",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "CS2 in-game stats overlay aggregating Leetify, csstats.gg, FACEIT, and Steam — FACEIT safe.",
   "homepage": "https://github.com/joshblaszczyk/cs2-stats-overlay",
   "bugs": {
