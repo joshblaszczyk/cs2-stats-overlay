@@ -383,10 +383,13 @@ export default function DetailPanel({ player, settings, currentMap, pattern, liv
           <div className="dp-v-section" data-src="csrep">
             <div className="dp-v-sec-title">CSREP ANALYSIS <span className="dp-v-src">csrep.gg</span></div>
             {cr.trust != null && <div className="dp-v-kv"><span>Trust Rating</span><strong style={{ color: cr.trust >= 80 ? '#4eac87' : cr.trust >= 60 ? '#6b7180' : cr.trust >= 40 ? '#e08b3c' : '#de4848' }}>{Math.round(cr.trust)}%</strong></div>}
+            {cr.sba != null && <div className="dp-v-kv"><span>Stats Based Analysis</span><strong style={{ color: cr.sba >= 80 ? '#4eac87' : cr.sba >= 60 ? '#6b7180' : cr.sba >= 40 ? '#e08b3c' : '#de4848' }}>{Math.round(cr.sba)}%</strong></div>}
+            <Bar label="K/D Ratio"       value={m.kd}           unit=""   barPct={pctBar(m.kd, 3)}                 tone={tone(m.kd, 0.7, 1.0, 1.5, 2.0)} />
+            <Bar label="ADR"             value={m.adr}          unit=""   barPct={pctBar(m.adr, 150)}              tone={tone(m.adr, 50, 70, 95, 120)} />
+            <Bar label="HLTV 2.0"        value={m.hltvRating}   unit=""   barPct={pctBar(m.hltvRating, 2)}         tone={tone(m.hltvRating, 0.9, 1.15, 1.5, 2.0)} />
+            <Bar label="KAST"            value={m.kast}         unit="%"  barPct={pctBar(m.kast, 100)}             tone={tone(m.kast, 60, 72, 85, 95)} />
             <Bar label="Aim Accuracy"    value={m.aimAcc}       unit="%"  barPct={pctBar(m.aimAcc, 40)}            tone={tone(m.aimAcc, 10, 18, 25, 35)} />
             <Bar label="Head Accuracy"   value={m.headAcc}      unit="%"  barPct={pctBar(m.headAcc, 60)}           tone={tone(m.headAcc, 15, 25, 35, 50)} />
-            <Bar label="KAST"            value={m.kast}         unit="%"  barPct={pctBar(m.kast, 100)}             tone={tone(m.kast, 60, 72, 85, 95)} />
-            <Bar label="HLTV 2.0"        value={m.hltvRating}   unit=""   barPct={pctBar(m.hltvRating, 2)}         tone={tone(m.hltvRating, 0.9, 1.15, 1.5, 2.0)} />
             <Bar label="Reaction"        value={m.reactionMs}   unit="ms" barPct={pctBar(m.reactionMs, 800, true)} tone={tone(m.reactionMs, 700, 400, 300, 200, true)} />
             <Bar label="Time to Damage"  value={m.ttdMs}        unit="ms" barPct={pctBar(m.ttdMs, 1000, true)}     tone={tone(m.ttdMs, 1000, 500, 400, 300, true)} />
             <Bar label="Preaim"          value={m.preaimDeg}    unit="°"  barPct={pctBar(m.preaimDeg, 20, true)}   tone={tone(m.preaimDeg, 15, 8, 5, 3, true)} />
