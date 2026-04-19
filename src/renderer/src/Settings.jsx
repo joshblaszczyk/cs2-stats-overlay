@@ -207,10 +207,20 @@ export default function Settings({ settings, onSave, onClose }) {
     }
   }
 
+  const checkTimeoutRef = React.useRef(null);
   async function handleCheckForUpdate() {
     // Optimistic local state so the click feels immediate even before the
     // main process's 'checking' event arrives.
-    setUpdatePhase({ phase: 'checking' });
+    setUpdatePhase({ phase: 'checking', startedAt: Date.now() });
+    // Watchdog: if no updater event comes back in 20s we're probably
+    // wedged (network hang, GitHub 403, etc). Surface an error so the
+    // button re-enables and the user sees why nothing happened.
+    if (checkTimeoutRef.current) clearTimeout(checkTimeoutRef.current);
+    checkTimeoutRef.current = setTimeout(() => {
+      setUpdatePhase(p => (p?.phase === 'checking'
+        ? { phase: 'error', message: 'No response in 20s — check logs' }
+        : p));
+    }, 20000);
     try {
       const r = await window.cs2stats?.checkForUpdate?.();
       // Dev builds return {phase: 'not-available'} synchronously without
@@ -220,6 +230,15 @@ export default function Settings({ settings, onSave, onClose }) {
       setUpdatePhase({ phase: 'error', message: err.message });
     }
   }
+
+  // Clear the watchdog whenever a terminal phase arrives.
+  useEffect(() => {
+    const p = updatePhase?.phase;
+    if (p && p !== 'checking' && checkTimeoutRef.current) {
+      clearTimeout(checkTimeoutRef.current);
+      checkTimeoutRef.current = null;
+    }
+  }, [updatePhase?.phase]);
 
   function handleAutoLaunch() {
     const next = !autoLaunch;

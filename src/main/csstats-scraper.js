@@ -414,7 +414,12 @@ async function scrapeAllPlayers(steamIds) {
       try {
         const page = takeInitialPage() || await b.newPage();
         const data = await scrapePlayer(id, page);
-        if (data && (data.premier || data.faceitLevel || data.kd)) {
+        // A returned object — even with all-null fields — means the
+        // page loaded successfully and the profile is simply empty
+        // (brand-new account, private, never played). Cache it so the
+        // retry loop stops hammering. Only thrown errors / null data
+        // are treated as a retry-worthy failure.
+        if (data) {
           results[id] = data;
           setCachedEntry(id, data);
         }
@@ -454,12 +459,11 @@ async function scrapeAllPlayers(steamIds) {
           await new Promise(r => setTimeout(r, INTER_REQUEST_MS));
           const page = await b.newPage();
           const data = await scrapePlayer(id, page);
-          if (data && (data.premier || data.faceitLevel || data.kd)) {
+          if (data) {
             results[id] = data;
             setCachedEntry(id, data);
-            console.log(`[CSScrape] Retry OK: ${id}`);
-          } else {
-            console.log(`[CSScrape] Retry still empty: ${id}`);
+            const status = (data.premier || data.faceitLevel || data.kd) ? 'OK' : 'empty-ok';
+            console.log(`[CSScrape] Retry ${status}: ${id}`);
           }
         } catch (err) {
           if (err && err.name === 'RateLimitedError') {

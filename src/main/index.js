@@ -159,6 +159,16 @@ function runCsstatsScrape(steamIds, roundPhase) {
   if (csstatsInflight) return;
   const toScrape = steamIds.filter(id => !scrapedIds.has(id));
   if (toScrape.length === 0) return;
+  // Round-phase gate: the puppeteer browser spikes CPU hard when it
+  // launches tabs + evaluates pages. If this lands mid-fight the user
+  // sees a stutter. Defer until we're in freezetime / round-over /
+  // warmup. EXCEPTION: if we've scraped nothing yet for this match,
+  // run immediately — otherwise the scoreboard stays empty for the
+  // whole first round, which is worse than the stutter. The retry
+  // loop at 8s will keep trying until a non-live phase arrives.
+  if (lastKnownRoundPhase === 'live' && scrapedIds.size > 0) {
+    return;
+  }
   console.log(`[CSScrape] Scheduling ${toScrape.length} player(s)`);
   csstatsInflight = true;
   // Immediate kickoff — no artificial delay

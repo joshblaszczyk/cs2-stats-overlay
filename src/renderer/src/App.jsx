@@ -638,16 +638,23 @@ export default function App() {
     <PerfHud />
     <div className={`overlay-root ${(visible || showSettings) ? 'visible' : 'hidden'}`}>
       {showSettings ? (
-        <div
-          className="overlay-panel centered"
-          style={{ transform: `translate(${settingsPos.x}px, ${settingsPos.y}px)` }}
-        >
-          <Settings
-            settings={settings}
-            onSave={handleSaveSettings}
-            onClose={() => setShowSettings(false)}
-          />
-        </div>
+        <>
+          {/* Clicking anywhere outside the panel dismisses Settings.
+              mousedown (not click) so a drag that starts outside +
+              ends inside closes, and so it fires before focusable
+              widgets steal the click. */}
+          <div className="settings-backdrop" onMouseDown={() => setShowSettings(false)} />
+          <div
+            className="overlay-panel centered"
+            style={{ transform: `translate(${settingsPos.x}px, ${settingsPos.y}px)` }}
+          >
+            <Settings
+              settings={settings}
+              onSave={handleSaveSettings}
+              onClose={() => setShowSettings(false)}
+            />
+          </div>
+        </>
       ) : (
         <>
           <div

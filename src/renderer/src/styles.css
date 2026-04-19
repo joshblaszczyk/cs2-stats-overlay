@@ -116,6 +116,19 @@ html, body {
   justify-content: center;
   align-items: flex-start;
   padding-top: 24px;
+  position: relative;
+  z-index: 2;
+}
+
+/* Invisible full-screen click-catcher behind the Settings panel.
+   Mousedown bubbles up here only when the user clicks outside the
+   panel, which triggers a close in App.jsx. Transparent so the
+   game underneath stays visible. */
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
 }
 
 /* Positioner — wraps scoreboard + detail panel, moveable */
