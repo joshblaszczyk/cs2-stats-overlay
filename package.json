@@ -36,13 +36,13 @@
       }
     ],
     "win": {
-      "publisherName": "Joshua Blaszczyk",
       "target": [
         "nsis"
       ],
       "icon": "build/icon.ico",
       "signAndEditExecutable": true,
       "signtoolOptions": {
+        "publisherName": "Joshua Blaszczyk",
         "signingHashAlgorithms": [
           "sha256"
         ],

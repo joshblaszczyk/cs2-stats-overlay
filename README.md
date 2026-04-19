@@ -70,8 +70,8 @@ The only outbound traffic the app makes is to hosts you explicitly configured, p
 | `api.steampowered.com` | Steam Web API — your own key |
 | `open.faceit.com` | FACEIT API — your own key |
 | `api-public.cs-prod.leetify.com` / `api.leetify.com` | Leetify API — your own key |
-| `csstats.gg` | Scraped after one-time Steam login during setup |
-| `csrep.gg` | Scraped (public data, no login) |
+| `csstats.gg` | Reads public profile pages (no sign-in required) |
+| `csrep.gg` | Reads public profile pages (no login required) |
 | `steamcommunity.com` | Only during the optional Steam Guard login for Game Coordinator rank data |
 | `api.github.com` / `github.com` | Auto-update check + download |
 | `127.0.0.1:3000` | The local GSI server — **bound to localhost only**, not reachable from the LAN |
@@ -93,7 +93,7 @@ None of this leaves your machine.
 
 1. Download the latest installer from [Releases](https://github.com/joshblaszczyk/cs2-stats-overlay/releases).
 2. Run `CS2-Stats-Overlay-Setup-<version>.exe`. Windows will show the publisher as **Joshua Blaszczyk** — the installer is code-signed via [Azure Trusted Signing](https://learn.microsoft.com/en-us/azure/trusted-signing/). On first run SmartScreen may still show a "publisher reputation building" warning while the cert earns reputation — click **More info** → **Run anyway**.
-3. Follow the in-app setup. You'll need to enter API keys (one-time) and sign into csstats.gg once.
+3. Follow the in-app setup. You'll need to enter your API keys (one-time).
 4. Launch CS2 with `-console` in your launch options. The app writes a GSI config file to CS2's cfg folder automatically.
 5. Hold `Tab` in-game. The overlay appears.
 
@@ -104,7 +104,6 @@ None of this leaves your machine.
 | Steam Web API | [steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey) | Required |
 | FACEIT Open Data | [developers.faceit.com](https://developers.faceit.com) | Required |
 | Leetify Developer | [leetify.com/app/developer](https://leetify.com/app/developer) | Recommended |
-| csstats.gg login | One-time Steam OpenID login in an embedded browser | Required |
 
 All keys are stored encrypted at rest using Electron's `safeStorage` (Windows DPAPI).
 
@@ -130,7 +129,7 @@ CS2 ──(GSI HTTP POST)──┐
                        │
  console.log (tail) ───┼──→ Main process ──→ Worker (API fetching) ──→ Renderer (React overlay)
                        │         │
- Steam Coplay SDK ─────┘         └──→ Puppeteer (csstats.gg + csrep.gg scrape, Cloudflare-gated)
+ Steam Coplay SDK ─────┘         └──→ Puppeteer (csstats.gg + csrep.gg public pages, Cloudflare-gated)
 ```
 
 - **Main process** (`src/main/`) — Electron main, GSI server, Win32 overlay, IPC.
@@ -142,7 +141,6 @@ CS2 ──(GSI HTTP POST)──┐
 - **Windows only.** No macOS or Linux support.
 - **Leetify public API is frequently down.** The app falls back to `api.leetify.com/api/mini-profiles/` which returns fewer fields (no preaim, no per-map breakdown) but keeps core ratings available.
 - **SmartScreen "publisher reputation" warnings** on first run. The installer is signed via Azure Trusted Signing so the cert chain shows the publisher correctly, but Microsoft's reputation system takes time to trust new certs — warnings fade as downloads accumulate.
-- **csstats.gg requires a one-time manual Steam login** during setup because of Cloudflare Turnstile.
 - **FACEIT rate limits** at ~500 req/min. The app batches and throttles, but if you're rapidly queueing into new matches, some players may show no FACEIT data for a few seconds.
 
 ## License
