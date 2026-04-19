@@ -1,6 +1,6 @@
 {
   "name": "cs2-stats-overlay",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "CS2 in-game stats overlay aggregating Leetify, csstats.gg, FACEIT, and Steam — FACEIT safe.",
   "homepage": "https://github.com/joshblaszczyk/cs2-stats-overlay",
   "bugs": {
@@ -58,7 +58,8 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "installerSidebar": "build/installerSidebar.bmp"
+      "installerSidebar": "build/installerSidebar.bmp",
+      "artifactName": "CS2-Stats-Overlay-Setup-${version}.${ext}"
     },
     "files": [
       "out/**/*",
