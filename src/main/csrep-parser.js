@@ -111,20 +111,48 @@ function parseDomInBrowser() {
 }
 
 // Navigate the provided page to csrep.gg for the given SteamID, wait for the
-// SPA to hydrate, then extract fields. Returns null on navigation/render
-// failure so callers can degrade gracefully.
+// SPA to hydrate through Cloudflare's challenge, then extract fields.
+// Returns an object with nulls on navigation/render failure so callers can
+// degrade gracefully.
+//
+// csrep.gg sits behind an aggressive Cloudflare managed-challenge that
+// stalls the request on a "Just a moment..." interstitial for several
+// seconds. puppeteer-real-browser's turnstile:true solves it but the
+// solve can take 10-20s under load. Our wait here must tolerate that,
+// otherwise we end up parsing the challenge page and returning all nulls
+// for every player (user-visible as "cswatch not detecting anyone").
 async function scrapeCsrepPage(page, steamId64) {
   await page.goto(`https://csrep.gg/player/${steamId64}`, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
-  // csrep is client-rendered — wait briefly for the trust ring + reputation
-  // text before reading innerText. Failure here is non-fatal; we'll just get
-  // partial data back from parseDomInBrowser.
-  await page.waitForFunction(() => {
-    const t = document.body.innerText || '';
-    return /Trust Rating/i.test(t) || /Player Reputation/i.test(t);
-  }, { timeout: 6000 }).catch(() => {});
+
+  // Two-phase wait:
+  //   1. Cloudflare challenge clears ("Just a moment..." title/text gone)
+  //   2. csrep SPA hydrates (Trust Rating / Player Reputation rendered)
+  // Generous single timeout covering both — if either stalls, we still
+  // fall through to evaluate and log a diagnostic.
+  const ready = await page.waitForFunction(() => {
+    const title = document.title || '';
+    const txt = document.body?.innerText || '';
+    // Still on CF challenge
+    if (/Just a moment/i.test(title) || /Enable JavaScript and cookies/i.test(txt)) return false;
+    // Real page hydrated
+    return /Trust Rating/i.test(txt) || /Player Reputation/i.test(txt);
+  }, { timeout: 25000 }).then(() => true).catch(() => false);
+
+  if (!ready) {
+    // Diagnostic: log what we ended up with so we can tell if the problem
+    // is a stuck challenge, a DOM change, or a 404 profile.
+    try {
+      const diag = await page.evaluate(() => ({
+        title: document.title,
+        snippet: (document.body?.innerText || '').slice(0, 200).replace(/\s+/g, ' '),
+      }));
+      console.log(`[CSRep] wait timeout for ${steamId64} — title="${diag.title}" snippet="${diag.snippet}"`);
+    } catch {}
+  }
+
   return page.evaluate(parseDomInBrowser);
 }
 
