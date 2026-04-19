@@ -4,7 +4,10 @@ function DataDot({ player }) {
   const hasCsstats = player.csstats && player.csstats.kd != null;
   const hasLeetify = player.leetify && player.leetify.aim != null;
   const hasFaceit = player.faceit && player.faceit.level != null;
-  const q = (hasLeetify || hasCsstats) && hasFaceit ? 'full' : hasLeetify || hasFaceit || hasCsstats ? 'partial' : 'basic';
+  // csrep metrics stand in for csstats on private/untracked profiles.
+  const hasCsrep   = player.csrep?.metrics?.kd != null;
+  const anyStats = hasLeetify || hasCsstats || hasCsrep;
+  const q = anyStats && hasFaceit ? 'full' : anyStats || hasFaceit ? 'partial' : 'basic';
   return <span className={`data-dot ${q}`} title={q === 'full' ? 'Full data' : q === 'partial' ? 'Partial data' : 'Basic data'} />;
 }
 
@@ -30,19 +33,23 @@ function PlayerRow({ player, isLocal, isSelected, showRecent }) {
   const faceitLvl = player.faceit?.level || player.csstats?.faceitLevel;
   const cs = player.csstats || {};
   const lt = player.leetify || {};
+  // csrep.gg metrics are the last-resort fallback when csstats has
+  // nothing (private profile / untracked account). csrep still gives
+  // us kd/adr/hltv/hs for these players — better than a blank row.
+  const csr = player.csrep?.metrics || {};
   const hasCsRecent = cs.recentKd != null || cs.recentRating != null;
 
   const kd = showRecent && cs.recentKd != null
     ? cs.recentKd
-    : (cs.kd ?? player.faceit?.stats?.kd ?? player.stats?.kd);
+    : (cs.kd ?? player.faceit?.stats?.kd ?? player.stats?.kd ?? csr.kd);
   const hltv = showRecent && cs.recentRating != null
     ? cs.recentRating
-    : cs.hltvRating;
+    : (cs.hltvRating ?? csr.hltvRating);
   const wr = showRecent
     ? (cs.recentWinRate ?? lt.recentWinRate ?? cs.winRate ?? lt.winRate ?? player.faceit?.stats?.winRate)
     : (cs.winRate ?? lt.winRate ?? player.faceit?.stats?.winRate);
-  const hs = showRecent && hasCsRecent ? cs.recentHs : cs.hsPercent;
-  const adr = showRecent && hasCsRecent ? cs.recentAdr : cs.adr;
+  const hs = showRecent && hasCsRecent ? cs.recentHs : (cs.hsPercent ?? csr.headAcc);
+  const adr = showRecent && hasCsRecent ? cs.recentAdr : (cs.adr ?? csr.adr);
   const hours = player.hours && player.hours !== 'Private' ? player.hours : null;
 
   return (

@@ -11,9 +11,17 @@
 const path = require('path');
 const fs = require('fs');
 
-// Cache lifetime: 4 hours. Long enough that a full session of CS2 never
-// triggers a re-scrape; short enough that rank changes show up same-day.
+// Cache lifetime: 4 hours for populated profiles. Long enough that a
+// full session of CS2 never triggers a re-scrape; short enough that
+// rank changes show up same-day.
 const SCRAPE_TTL_MS = 4 * 60 * 60 * 1000;
+
+// Shorter TTL for "empty" entries — scrapes where the player had no
+// lifetime stats at scrape time (new account, untracked on csstats,
+// matches not yet indexed). These profiles frequently gain data
+// within 30-60 min of first game, so we re-check them sooner rather
+// than cache nothing for 4 hours.
+const EMPTY_SCRAPE_TTL_MS = 20 * 60 * 1000; // 20 minutes
 
 // Bump this whenever the scraper output shape changes (new fields, renamed
 // fields). Entries persisted under an older schema are ignored at load
@@ -85,7 +93,16 @@ function getCachedEntry(id) {
 }
 
 function isFresh(entry) {
-  return !!(entry && (Date.now() - entry.scrapedAt) < SCRAPE_TTL_MS);
+  if (!entry) return false;
+  const age = Date.now() - entry.scrapedAt;
+  const d = entry.data || {};
+  // "Empty" = no rank, no lifetime stats, no csrep trust at scrape
+  // time. These profiles gain data quickly once the player plays a
+  // tracked match, so re-check sooner.
+  const isEmpty = d.premier == null && d.faceitLevel == null
+               && d.kd == null && d.csrepTrust == null;
+  const ttl = isEmpty ? EMPTY_SCRAPE_TTL_MS : SCRAPE_TTL_MS;
+  return age < ttl;
 }
 
 // Store a freshly-scraped entry and schedule a disk flush.

@@ -61,6 +61,32 @@ const CLOUDFLARE_CHALLENGE_TIMEOUT_MS = 6000;
 const STATS_WAIT_TIMEOUT_MS = 8000;
 const MATCHES_WAIT_TIMEOUT_MS = 10000;
 
+// Idle-shutdown: close the puppeteer browser (free ~200-300MB RAM +
+// the visible Chrome window) this many ms after a batch completes.
+// Any new scrape cancels the timer and reuses the running browser.
+// Cookies (incl. cf_clearance) persist in the userDataDir so the next
+// cold start skips the full Cloudflare challenge via pre-warm.
+const IDLE_SHUTDOWN_MS = 30000;
+let idleShutdownTimer = null;
+
+function armIdleShutdown() {
+  if (idleShutdownTimer) clearTimeout(idleShutdownTimer);
+  idleShutdownTimer = setTimeout(async () => {
+    idleShutdownTimer = null;
+    if (!isConnected()) return;
+    console.log('[CSScrape] Idle — closing browser to free resources');
+    try { await shutdownBrowser(); } catch (e) { console.log('[CSScrape] Idle shutdown failed:', e.message); }
+    try { require('./csrep-parser').resetCsrepWarmup(); } catch {}
+  }, IDLE_SHUTDOWN_MS);
+}
+
+function cancelIdleShutdown() {
+  if (idleShutdownTimer) {
+    clearTimeout(idleShutdownTimer);
+    idleShutdownTimer = null;
+  }
+}
+
 class RateLimitedError extends Error {
   constructor(msg) { super(msg); this.name = 'RateLimitedError'; }
 }
@@ -125,16 +151,41 @@ async function scrapePlayer(steamId64, existingPage) {
     if (bannerReason) throw new RateLimitedError(bannerReason);
 
     // Wait for stats to actually render rather than a blind sleep.
+    // statsRendered distinguishes "page hydrated, profile is just
+    // empty" (true → cache the nulls) from "wait timed out, DOM was
+    // likely partial" (false → orchestrator should retry).
+    let statsRendered = false;
     try {
       await page.waitForFunction(() => {
         const t = document.body.innerText || '';
         return /K\/D/i.test(t) && /HLTV RATING/i.test(t) && /WIN RATE/i.test(t);
       }, { timeout: STATS_WAIT_TIMEOUT_MS });
+      statsRendered = true;
     } catch {
-      // Stats not found — page may be private or not a CS2 player.
+      // Stats not found — page may be private, a brand-new account
+      // with zero games (site renders the profile shell but no stats
+      // block), or the hydration simply raced our timeout. Fall back
+      // to a cheaper "is this a real player page?" probe so we can
+      // tell the two cases apart. If the probe confirms the page
+      // loaded, we can still cache null data; otherwise treat as a
+      // retry-worthy failure.
+      try {
+        statsRendered = await page.evaluate(() => {
+          const t = document.body.innerText || '';
+          // Empty-but-valid profile markers: site header + some
+          // profile chrome rendered. "RANK" / "BEST" labels show up
+          // even on zero-games profiles. "csstats" branding confirms
+          // we didn't land on a CF wall.
+          return /RANK\s*BEST/i.test(t) || /CS\s*STATS/i.test(t);
+        });
+      } catch { /* evaluate on a half-dead page — leave statsRendered false */ }
     }
 
     const data = await page.evaluate(parsePlayerPage);
+    // Non-persisted flag — tells the orchestrator whether this scrape
+    // saw a rendered profile. Stripped before the cache write so it
+    // doesn't accumulate in the JSON.
+    data._statsRendered = statsRendered;
 
     // ── Phase 2: matches tab for recent-30 aggregates ──
     // csstats renders match rows client-side, so we navigate and wait for
@@ -309,18 +360,22 @@ function isScrapingDisabled() {
 
 // ── Batch orchestrator ───────────────────────────────────────
 async function scrapeAllPlayers(steamIds) {
+  // New batch incoming — cancel any pending idle shutdown so we don't
+  // close the browser in the middle of this batch. Re-armed on exit.
+  cancelIdleShutdown();
   loadDiskCache();
   const results = {};
 
   const offReason = isScrapingDisabled();
   if (offReason === 'lowPower') console.log('[CSScrape] lowPowerMode enabled — skipping scrape');
-  if (offReason) return results;
+  if (offReason) { armIdleShutdown(); return results; }
 
   const nowMs = Date.now();
   if (cooldownUntil > nowMs) {
     const min = Math.ceil((cooldownUntil - nowMs) / 60000);
     console.log(`[CSScrape] In cooldown — ${min} min remaining`);
     reportStatus('rate_limited');
+    armIdleShutdown();
     return results;
   }
 
@@ -356,6 +411,7 @@ async function scrapeAllPlayers(steamIds) {
   }
   if (toFetch.length === 0 && toTopUp.length === 0) {
     console.log(`[CSScrape] All ${steamIds.length} players served from cache`);
+    armIdleShutdown();
     return results;
   }
 
@@ -390,6 +446,7 @@ async function scrapeAllPlayers(steamIds) {
     } catch (e) {
       console.log('[CSScrape] Top-up browser failed:', e.message);
     }
+    armIdleShutdown();
     return results;
   }
 
@@ -400,6 +457,7 @@ async function scrapeAllPlayers(steamIds) {
   } catch (e) {
     reportStatus('down');
     console.log('[CSScrape] Browser failed to start:', e.message);
+    armIdleShutdown();
     return results;
   }
 
@@ -414,14 +472,22 @@ async function scrapeAllPlayers(steamIds) {
       try {
         const page = takeInitialPage() || await b.newPage();
         const data = await scrapePlayer(id, page);
-        // A returned object — even with all-null fields — means the
-        // page loaded successfully and the profile is simply empty
-        // (brand-new account, private, never played). Cache it so the
-        // retry loop stops hammering. Only thrown errors / null data
-        // are treated as a retry-worthy failure.
+        // Three outcomes:
+        //   • data with real fields (premier/faceit/kd) → cache + done
+        //   • data with all-null fields AND _statsRendered → profile
+        //     is legitimately empty (0 games / private); cache so the
+        //     retry loop stops hammering.
+        //   • data with all-null fields AND !_statsRendered → the
+        //     page didn't hydrate in time; leave out of results so
+        //     the 8s retry loop re-tries on the next tick.
         if (data) {
-          results[id] = data;
-          setCachedEntry(id, data);
+          const rendered = data._statsRendered;
+          delete data._statsRendered;
+          const hasRealData = data.premier || data.faceitLevel || data.kd;
+          if (hasRealData || rendered) {
+            results[id] = data;
+            setCachedEntry(id, data);
+          }
         }
       } catch (err) {
         if (err && err.name === 'RateLimitedError') {
@@ -460,10 +526,16 @@ async function scrapeAllPlayers(steamIds) {
           const page = await b.newPage();
           const data = await scrapePlayer(id, page);
           if (data) {
-            results[id] = data;
-            setCachedEntry(id, data);
-            const status = (data.premier || data.faceitLevel || data.kd) ? 'OK' : 'empty-ok';
-            console.log(`[CSScrape] Retry ${status}: ${id}`);
+            const rendered = data._statsRendered;
+            delete data._statsRendered;
+            const hasRealData = data.premier || data.faceitLevel || data.kd;
+            if (hasRealData || rendered) {
+              results[id] = data;
+              setCachedEntry(id, data);
+              console.log(`[CSScrape] Retry ${hasRealData ? 'OK' : 'empty-ok'}: ${id}`);
+            } else {
+              console.log(`[CSScrape] Retry still pending (page not ready): ${id}`);
+            }
           }
         } catch (err) {
           if (err && err.name === 'RateLimitedError') {
@@ -493,10 +565,14 @@ async function scrapeAllPlayers(steamIds) {
     if (successCount > 0) reportStatus('ok');
     else if (steamIds.length > 0) reportStatus('down');
   }
+  // Arm the idle-shutdown — if no new batch arrives in 30s, the
+  // browser (and its visible Chrome window) closes to free memory.
+  armIdleShutdown();
   return results;
 }
 
 async function shutdownScraper() {
+  cancelIdleShutdown();
   await shutdownBrowser();
   // Clear csrep warmup flag so the next browser session re-runs the
   // Cloudflare challenge warm-up instead of trusting a stale flag.
