@@ -159,14 +159,20 @@ function runCsstatsScrape(steamIds, roundPhase) {
   if (csstatsInflight) return;
   const toScrape = steamIds.filter(id => !scrapedIds.has(id));
   if (toScrape.length === 0) return;
-  // Round-phase gate: the puppeteer browser spikes CPU hard when it
-  // launches tabs + evaluates pages. If this lands mid-fight the user
-  // sees a stutter. Defer until we're in freezetime / round-over /
-  // warmup. EXCEPTION: if we've scraped nothing yet for this match,
-  // run immediately — otherwise the scoreboard stays empty for the
-  // whole first round, which is worse than the stutter. The retry
-  // loop at 8s will keep trying until a non-live phase arrives.
-  if (lastKnownRoundPhase === 'live' && scrapedIds.size > 0) {
+  // Round-phase gate: the puppeteer browser spikes CPU when it
+  // launches 3 parallel tabs for the initial 10-player lobby scrape.
+  // If that lands mid-fight the user sees a stutter. Defer the heavy
+  // batch until we're in freezetime / round-over / warmup.
+  //
+  // Only applies to LARGE batches (≥5 players). A retry loop catching
+  // 1-3 stragglers is cheap (no browser cold start, often cache-warm)
+  // and shouldn't be gated — otherwise on maps with no round cycle
+  // (surf, DM, community servers) phase stays 'live' forever and
+  // stragglers never get scraped.
+  const LIVE_BATCH_GATE = 5;
+  if (lastKnownRoundPhase === 'live'
+      && scrapedIds.size > 0
+      && toScrape.length >= LIVE_BATCH_GATE) {
     return;
   }
   console.log(`[CSScrape] Scheduling ${toScrape.length} player(s)`);
