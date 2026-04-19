@@ -41,7 +41,9 @@ src/
 │   ├── steam-api.js            Steam Web API client (player summaries, bans, playtime)
 │   ├── faceit-api.js           FACEIT Open Data API client
 │   ├── leetify-api.js          Leetify v3 API + mini-profile fallback
-│   ├── csstats-scraper.js      Puppeteer-based csstats.gg scraper (Cloudflare gated)
+│   ├── csstats-scraper.js      Puppeteer-based csstats.gg + csrep.gg scraper (Cloudflare gated)
+│   ├── csstats-parser.js       csstats.gg DOM → structured stats
+│   ├── csrep-parser.js         csrep.gg DOM → trust score, SBA metrics, deltas, verdicts
 │   ├── fetch-worker.js         Forked child process — all API fetching lives here
 │   ├── player-cache.js         LRU cache for per-player lookups
 │   ├── settings.js             Encrypted settings load/save via safeStorage
@@ -84,7 +86,7 @@ CS2 ─(HTTP POST)─→ gsi-server.js ──┐
 
 ## Security ground rules
 
-If you're touching main process or preload, read [SECURITY.md](SECURITY.md) first if it exists, or the security section below.
+If you're touching main process or preload, read [SECURITY.md](SECURITY.md) first.
 
 - **Never** expose raw `ipcRenderer` or `require` to the renderer. Only add methods to `contextBridge.exposeInMainWorld` — one per use case.
 - **Validate every IPC input** at the handler. Allowlist keys, coerce types, cap lengths. See `save-api-keys` / `save-settings` / `save-position` handlers for the pattern.
@@ -96,7 +98,7 @@ If you're touching main process or preload, read [SECURITY.md](SECURITY.md) firs
 
 ## Coding conventions
 
-- **Formatting**: match existing style. 2-space indent, single quotes, no semicolons in new JS files — wait no, **do use semicolons**, the existing codebase uses them.
+- **Formatting**: match existing style — 2-space indent, single quotes, semicolons.
 - **No unnecessary comments.** Explain *why*, not *what*. If a function name + types make the behavior obvious, no comment.
 - **No backward-compat shims for unreleased features.** Rename, delete, or change freely until v1.0.
 - **Small PRs.** One feature or fix per PR. Huge refactors get rejected without review unless pre-agreed in an issue.
