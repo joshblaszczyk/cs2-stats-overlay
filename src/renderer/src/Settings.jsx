@@ -176,6 +176,7 @@ export default function Settings({ settings, onSave, onClose }) {
   const [autoLaunch, setAutoLaunch] = useState(false);
   const [keyStatus, setKeyStatus] = useState(null);
   const [appInfo, setAppInfo] = useState(null);
+  const [updatePhase, setUpdatePhase] = useState(null); // { phase, version?, percent?, message? }
   const refreshKeyStatus = useCallback(async () => {
     const s = await window.cs2stats?.getKeyStatus?.();
     if (s) setKeyStatus(s);
@@ -184,8 +185,41 @@ export default function Settings({ settings, onSave, onClose }) {
   useEffect(() => {
     window.cs2stats?.getAutoLaunch?.().then(v => setAutoLaunch(!!v));
     window.cs2stats?.getAppInfo?.().then(v => setAppInfo(v));
+    // Subscribe to updater events so the Check button can show progress
+    // (checking / available / downloading / downloaded / not-available / error).
+    // Without this the button click looked unresponsive — every state
+    // transition was invisible in the Settings panel.
+    window.cs2stats?.onUpdateStatus?.((s) => setUpdatePhase(s));
     refreshKeyStatus();
   }, [refreshKeyStatus]);
+
+  // Human label for each updater phase — surfaced next to the Check button.
+  function updatePhaseLabel(p) {
+    if (!p) return null;
+    switch (p.phase) {
+      case 'checking':      return 'Checking…';
+      case 'available':     return `Update ${p.version || ''} available — downloading…`;
+      case 'downloading':   return `Downloading… ${p.percent ?? 0}%`;
+      case 'downloaded':    return `Ready — restart to install ${p.version || ''}`;
+      case 'not-available': return 'Up to date';
+      case 'error':         return `Error: ${p.message || 'unknown'}`;
+      default:              return null;
+    }
+  }
+
+  async function handleCheckForUpdate() {
+    // Optimistic local state so the click feels immediate even before the
+    // main process's 'checking' event arrives.
+    setUpdatePhase({ phase: 'checking' });
+    try {
+      const r = await window.cs2stats?.checkForUpdate?.();
+      // Dev builds return {phase: 'not-available'} synchronously without
+      // emitting events; surface that here.
+      if (r && r.error) setUpdatePhase({ phase: 'error', message: r.error });
+    } catch (err) {
+      setUpdatePhase({ phase: 'error', message: err.message });
+    }
+  }
 
   function handleAutoLaunch() {
     const next = !autoLaunch;
@@ -415,8 +449,27 @@ export default function Settings({ settings, onSave, onClose }) {
             }}>Export</button>
           </div>
           <div className="settings-action-row">
-            <span>Check for updates</span>
-            <button className="settings-btn" onClick={() => window.cs2stats?.checkForUpdate?.()}>Check</button>
+            <span>
+              Check for updates
+              {updatePhase && (
+                <span style={{ opacity: 0.7, fontSize: '0.85em', marginLeft: 8 }}>
+                  — {updatePhaseLabel(updatePhase)}
+                </span>
+              )}
+            </span>
+            {updatePhase?.phase === 'downloaded' ? (
+              <button className="settings-btn settings-btn-primary" onClick={() => window.cs2stats?.installUpdate?.()}>
+                Restart
+              </button>
+            ) : (
+              <button
+                className="settings-btn"
+                disabled={updatePhase?.phase === 'checking' || updatePhase?.phase === 'downloading'}
+                onClick={handleCheckForUpdate}
+              >
+                {updatePhase?.phase === 'checking' ? 'Checking…' : 'Check'}
+              </button>
+            )}
           </div>
           <div className="settings-action-row">
             <span>Uninstall (GSI config + auto-launch + app data)</span>
