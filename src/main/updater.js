@@ -57,9 +57,18 @@ function install(win) {
     // etc.) so there's no in-memory cost to quitting immediately.
     // The 1.5s delay gives the renderer a moment to paint "Restarting…"
     // before the process dies, and absorbs any last IPC chatter.
+    //
+    // isSilent=true:        pass /S to the NSIS installer so the
+    //                       assisted-install dialog does NOT pop up
+    //                       during an auto-update. (It still pops up
+    //                       for first-time installs because the user
+    //                       downloads and runs the installer directly
+    //                       in that flow; oneClick:false only governs
+    //                       that case.)
+    // isForceRunAfter=true: relaunch the app after install completes.
     setTimeout(() => {
-      console.log('[Updater] Auto-restarting to apply update');
-      try { autoUpdater.quitAndInstall(false, true); }
+      console.log('[Updater] Auto-restarting to apply update (silent)');
+      try { autoUpdater.quitAndInstall(true, true); }
       catch (err) { console.log('[Updater] quitAndInstall failed:', err.message); }
     }, 1500);
   });
@@ -78,7 +87,7 @@ function install(win) {
 
 function quitAndInstall() {
   try {
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true); // silent install, relaunch after
   } catch (err) {
     console.log('[Updater] quitAndInstall failed:', err.message);
   }
