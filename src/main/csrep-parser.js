@@ -24,14 +24,32 @@ function parseDomInBrowser() {
     return m ? parseFloat(m[1]) : null;
   };
 
-  // Trust rating is primarily inside an SVG ring as "{N}%Trust Rating".
-  // Fallback to pctNear for layout changes where the SVG text shifts.
+  // Trust rating — try multiple extraction paths in order of specificity:
+  //   1. SVG <text> containing "N% Trust Rating" (old ring layout)
+  //   2. Any element text matching "N% Trust Rating" (redesign may have
+  //      moved this to a non-SVG element)
+  //   3. pctNear — any "%" within 180 chars of the label (loosest)
+  // The "%" digit can live anywhere near "Trust Rating" — don't lock to
+  // a single DOM shape because csrep restyles their cards periodically.
   let trust = null;
+  let trustSource = null; // diagnostic: which path matched
   for (const t of document.querySelectorAll('svg text')) {
     const m = (t.textContent || '').match(/(\d{1,3})\s*%\s*Trust\s*Rating/i);
-    if (m) { trust = parseInt(m[1]); break; }
+    if (m) { trust = parseInt(m[1]); trustSource = 'svg'; break; }
   }
-  if (trust == null) trust = pctNear('Trust Rating');
+  if (trust == null) {
+    // Walk all elements — find one whose text contains the Trust Rating pattern.
+    for (const el of document.querySelectorAll('*')) {
+      const t = el.textContent || '';
+      if (t.length > 500) continue; // skip big containers, want leaf-ish
+      const m = t.match(/(\d{1,3}(?:\.\d+)?)\s*%\s*Trust\s*Rating/i);
+      if (m) { trust = parseFloat(m[1]); trustSource = 'elem'; break; }
+    }
+  }
+  if (trust == null) {
+    const v = pctNear('Trust Rating');
+    if (v != null) { trust = v; trustSource = 'pctNear'; }
+  }
 
   const lines = text.split('\n').map(s => s.trim());
   const parseNum = (s) => {
@@ -101,8 +119,23 @@ function parseDomInBrowser() {
     account[key] = { value: valueClean, delta: parsePct(deltaLine) };
   }
 
+  // Diagnostic snippet — when trust is null the node side logs the first
+  // 240 chars around "Trust Rating" so we can tell WHAT the site is
+  // actually rendering (label changed? new percent format? etc.).
+  let trustDebug = null;
+  if (trust == null) {
+    const idx = text.indexOf('Trust Rating');
+    if (idx >= 0) {
+      trustDebug = text.slice(Math.max(0, idx - 80), idx + 160).replace(/\s+/g, ' ');
+    } else {
+      trustDebug = 'NO_LABEL ' + text.slice(0, 200).replace(/\s+/g, ' ');
+    }
+  }
+
   return {
     trust,
+    trustSource,
+    trustDebug,
     anomalies: pctNear('Anomalies Detected'),
     sba: pctNear('Stats Based Analysis'),
     metrics,
@@ -110,40 +143,103 @@ function parseDomInBrowser() {
   };
 }
 
-// Navigate the provided page to csrep.gg for the given SteamID, wait for the
-// SPA to hydrate through Cloudflare's challenge, then extract fields.
-// Returns an object with nulls on navigation/render failure so callers can
-// degrade gracefully.
+// csrep.gg sits behind an aggressive Cloudflare managed-challenge. The
+// FIRST page load of any browser session triggers the full "Just a
+// moment..." interstitial (can take 10-30s to solve). Subsequent loads
+// reuse the cf_clearance cookie and pass straight through.
 //
-// csrep.gg sits behind an aggressive Cloudflare managed-challenge that
-// stalls the request on a "Just a moment..." interstitial for several
-// seconds. puppeteer-real-browser's turnstile:true solves it but the
-// solve can take 10-20s under load. Our wait here must tolerate that,
-// otherwise we end up parsing the challenge page and returning all nulls
-// for every player (user-visible as "cswatch not detecting anyone").
+// Without pre-warming, the first player we scrape fails (timeout before
+// the challenge is solved) while every later player succeeds. Since
+// the roster usually places the local player first, the user-visible
+// symptom is "cswatch doesn't detect me (and sometimes my first friend)."
+//
+// Session-scoped flag: pre-warm once per process. csstats-browser's
+// ensureBrowser preserves cookies across tabs, so one warm-up covers
+// all subsequent scrapePlayer calls.
+let csrepWarmed = false;
+
+const CHALLENGE_WAIT_MS       = 25000;  // initial wait for challenge + hydration
+const CHALLENGE_RETRY_WAIT_MS = 20000;  // second attempt after warmup
+const WARMUP_TIMEOUT_MS       = 30000;  // cap pre-warm so a stuck page doesn't block everything
+
+// Navigate once to csrep.gg root and wait through the Cloudflare
+// challenge. After this, the tab's cookie jar holds cf_clearance and
+// subsequent /player/<id> loads don't re-challenge.
+async function warmupCsrep(page) {
+  if (csrepWarmed) return true;
+  try {
+    await page.goto('https://csrep.gg/', { waitUntil: 'domcontentloaded', timeout: WARMUP_TIMEOUT_MS });
+    await page.waitForFunction(() => {
+      const title = document.title || '';
+      const txt = document.body?.innerText || '';
+      if (/Just a moment/i.test(title) || /Enable JavaScript and cookies/i.test(txt)) return false;
+      return txt.length > 100; // real content rendered
+    }, { timeout: CHALLENGE_WAIT_MS }).catch(() => {});
+    csrepWarmed = true;
+    console.log('[CSRep] Cloudflare pre-warm succeeded');
+    return true;
+  } catch (err) {
+    console.log('[CSRep] Pre-warm failed:', err.message?.slice(0, 120));
+    return false;
+  }
+}
+
+// Wait for the player page to clear CF and hydrate, or timeout.
+// Returns true if content is ready, false on timeout.
+//
+// Readiness signal: "Stats Based Analysis" — a label that only appears
+// inside the player data block (not the landing page chrome). It renders
+// for every profile shape we've seen:
+//   • healthy profile:      "96%Trust Rating … Stats Based Analysis"
+//   • insufficient-data:    "--Trust Rating … Stats Based Analysis (N games)"
+//   • fully private:        block may still render with all "Insufficient Data"
+// Using a bare /Trust Rating/ or /Player Reputation/ match is too loose:
+// both strings also appear in the landing hero tagline and nav chrome
+// BEFORE the player stats block hydrates, which caused premature parse
+// runs that captured an empty DOM.
+async function waitForPlayerPage(page, timeoutMs) {
+  return page.waitForFunction(() => {
+    const title = document.title || '';
+    const txt = document.body?.innerText || '';
+    if (/Just a moment/i.test(title) || /Enable JavaScript and cookies/i.test(txt)) return false;
+    return /Stats Based Analysis/i.test(txt);
+  }, { timeout: timeoutMs }).then(() => true).catch(() => false);
+}
+
+// Navigate the provided page to csrep.gg for the given SteamID, wait for
+// the SPA to hydrate, then extract fields. Returns an object with nulls
+// on failure so callers can degrade gracefully.
 async function scrapeCsrepPage(page, steamId64) {
+  // Pre-warm once so the first real player scrape doesn't take the CF hit.
+  if (!csrepWarmed) await warmupCsrep(page);
+
   await page.goto(`https://csrep.gg/player/${steamId64}`, {
     waitUntil: 'domcontentloaded',
     timeout: 30000,
   });
 
-  // Two-phase wait:
-  //   1. Cloudflare challenge clears ("Just a moment..." title/text gone)
-  //   2. csrep SPA hydrates (Trust Rating / Player Reputation rendered)
-  // Generous single timeout covering both — if either stalls, we still
-  // fall through to evaluate and log a diagnostic.
-  const ready = await page.waitForFunction(() => {
-    const title = document.title || '';
-    const txt = document.body?.innerText || '';
-    // Still on CF challenge
-    if (/Just a moment/i.test(title) || /Enable JavaScript and cookies/i.test(txt)) return false;
-    // Real page hydrated
-    return /Trust Rating/i.test(txt) || /Player Reputation/i.test(txt);
-  }, { timeout: 25000 }).then(() => true).catch(() => false);
+  let ready = await waitForPlayerPage(page, CHALLENGE_WAIT_MS);
+
+  // Retry path: if we're still stuck on CF after the first wait, the
+  // warmup didn't catch cf_clearance (common on cold browser starts).
+  // Re-warmup + retry once — this rescues the rare stuck-first-scrape.
+  if (!ready) {
+    csrepWarmed = false;
+    const warmed = await warmupCsrep(page);
+    if (warmed) {
+      try {
+        await page.goto(`https://csrep.gg/player/${steamId64}`, {
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
+        });
+        ready = await waitForPlayerPage(page, CHALLENGE_RETRY_WAIT_MS);
+      } catch {}
+    }
+  }
 
   if (!ready) {
-    // Diagnostic: log what we ended up with so we can tell if the problem
-    // is a stuck challenge, a DOM change, or a 404 profile.
+    // Diagnostic: the text snippet tells us whether we're still on CF,
+    // a 404-profile page, or something unexpected.
     try {
       const diag = await page.evaluate(() => ({
         title: document.title,
@@ -153,7 +249,22 @@ async function scrapeCsrepPage(page, steamId64) {
     } catch {}
   }
 
-  return page.evaluate(parseDomInBrowser);
+  const result = await page.evaluate(parseDomInBrowser);
+  // Log the one-time diagnostic when the parser finds the Trust Rating
+  // label but can't pull a percentage out of it. This is the symptom
+  // when csrep.gg changes DOM shape and our extractor's regex misses.
+  if (result && result.trust == null && result.trustDebug) {
+    console.log(`[CSRep] parse miss for ${steamId64} — snippet="${result.trustDebug}"`);
+  } else if (result && result.trust != null) {
+    console.log(`[CSRep] ${steamId64}: trust=${result.trust}% (source=${result.trustSource})`);
+  }
+  delete result.trustDebug;
+  delete result.trustSource;
+  return result;
 }
 
-module.exports = { scrapeCsrepPage, parseDomInBrowser };
+// Reset warmup state — called by the scraper shutdown path so the next
+// cold browser session re-runs the pre-warm instead of trusting a stale flag.
+function resetCsrepWarmup() { csrepWarmed = false; }
+
+module.exports = { scrapeCsrepPage, parseDomInBrowser, warmupCsrep, resetCsrepWarmup };

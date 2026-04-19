@@ -304,6 +304,15 @@ function getPerfCursorIntervalMs() { return CURSOR_POLL_MS[getPerfMode()]; }
 const HWND_TOPMOST = -1;
 const SWP_TOPMOST_NO_MOVE = 0x0013; // NOSIZE | NOMOVE | NOACTIVATE
 
+// Overlay visibility is the conjunction of "TAB is held" OR "settings is
+// pinned open". Used to gate expensive IPC to the renderer — when hidden,
+// pushing live stats at 2Hz still forces React to re-render off-screen
+// because we disabled backgroundThrottling for live-stats freshness.
+// Result was micro-stutter in CS2. Skip the IPC when nobody is looking.
+function isOverlayVisible() {
+  return tabDown || settingsPinned;
+}
+
 function showOverlay() {
   if (!win) return;
   win.setAlwaysOnTop(true, 'screen-saver');
@@ -314,6 +323,14 @@ function showOverlay() {
     win.setIgnoreMouseEvents(true, { forward: true });
   }
   win.webContents.send('overlay-toggle', true);
+  // Restore the user's configured frame rate now that we're visible again.
+  try { win.webContents.setFrameRate(getPerfFps()); } catch {}
+  // Push the freshest cached snapshot so the first frame shown isn't stale
+  // from whenever the overlay was last open. We skipped live-stats IPC
+  // while hidden, so the renderer may be minutes behind.
+  if (lastLiveStats && Object.keys(lastLiveStats).length > 0) {
+    try { win.webContents.send('live-stats-update', lastLiveStats); } catch {}
+  }
 
   if (overlayHwnd && SetWindowPos) {
     SetWindowPos(overlayHwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_TOPMOST_NO_MOVE);
@@ -327,6 +344,11 @@ function hideOverlay() {
   // Hide the window entirely — zero GPU/CPU cost when not showing
   win.hide();
   win.webContents.send('overlay-toggle', false);
+  // Drop render rate to 1fps while hidden. Chrome normally throttles
+  // background windows, but we've set backgroundThrottling:false so live
+  // stats stay current. Manually slow the renderer instead — CS2 gets
+  // the GPU budget back.
+  try { win.webContents.setFrameRate(1); } catch {}
 }
 
 // ─── Create window ──────────────────────────────────────────
@@ -623,7 +645,12 @@ function startGSI() {
       win.webContents.send('players-update', { players: [], map: newMap || '' });
     }
   },
-  // Live stats callback — throttled to 2x/sec (was 8x/sec)
+  // Live stats callback — throttled to 2x/sec (was 8x/sec).
+  // We ALWAYS keep the latest snapshot in `lastLiveStats` (so showOverlay
+  // can push it on TAB press) but only IPC it to the renderer when the
+  // overlay is actually visible. Before this gate, CS2 was microstuttering
+  // because React kept reconciling 2×/sec in a hidden renderer with
+  // backgroundThrottling:false.
   (() => {
     let lastSend = 0;
     return (liveStats) => {
@@ -636,7 +663,7 @@ function startGSI() {
       const now = Date.now();
       if (now - lastSend < 500) return; // Max 2 updates/sec to renderer
       lastSend = now;
-      if (win) {
+      if (win && isOverlayVisible()) {
         win.webContents.send('live-stats-update', liveStats);
       }
     };

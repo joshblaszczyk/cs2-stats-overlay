@@ -451,6 +451,9 @@ async function scrapeAllPlayers(steamIds) {
 
 async function shutdownScraper() {
   await shutdownBrowser();
+  // Clear csrep warmup flag so the next browser session re-runs the
+  // Cloudflare challenge warm-up instead of trusting a stale flag.
+  try { require('./csrep-parser').resetCsrepWarmup(); } catch {}
 }
 
 function getCsstatsStatus() {

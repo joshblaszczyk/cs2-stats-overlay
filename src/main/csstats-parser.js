@@ -123,16 +123,43 @@ function parsePlayerPage() {
   }
 
   // ── Lifetime stats block (label → value walker) ──
-  // Layout is typically: LABEL\n<overall>\n<recent>\n<next LABEL>\n... where
-  // the recent column only appears for players with 30+ tracked matches.
+  // csstats renders lifetime stats in one of two layouts, depending on
+  // how the page chooses to lay out the card grid for the viewer:
+  //   Multi-line: LABEL\n<overall>\n<recent>\n<next LABEL>\n...
+  //     (block-level elements, typical when 30+ matches exist)
+  //   Inline:     LABEL <overall> <recent>    on ONE innerText line
+  //     (inline spans, seen on some friend-private / partial profiles)
+  // Either can populate `bodyText`; the extractor needs to handle both
+  // or we leave lifetime stats null on profiles that use inline rendering
+  // (user-visible bug: kd=null even though premier + recent-matches populated).
   const lines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
   const clean = (s) => s.replace(/,/g, '').replace('%', '').trim();
   const isNumish = (s) => /^-?\d+\.?\d*$/.test(clean(s));
+  // Escape a label for use inside a RegExp — csstats labels include '/'
+  // ('K/D') and '%' ('HS%') which are regex-meaningful characters.
+  const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const getPair = (label) => {
+    // Primary: line-based walker (multi-line layout).
     for (let i = 0; i < lines.length - 1; i++) {
       if (lines[i].toUpperCase() === label.toUpperCase()) {
         const a = isNumish(lines[i + 1]) ? parseFloat(clean(lines[i + 1])) : null;
         const b = (i + 2 < lines.length && isNumish(lines[i + 2])) ? parseFloat(clean(lines[i + 2])) : null;
+        return [a, b];
+      }
+    }
+    // Fallback: inline layout. Match "LABEL <number> <number?>" anywhere
+    // in a line — we don't require the line to START with the label so
+    // we don't miss cases where csstats wraps it in a prefix element.
+    // Numbers are permissive: comma thousands separators, optional '%'.
+    const inlineRe = new RegExp(
+      `(?:^|\\s)${reEscape(label)}\\s+(-?[\\d.,]+)%?(?:\\s+(-?[\\d.,]+)%?)?`,
+      'i',
+    );
+    for (const line of lines) {
+      const m = line.match(inlineRe);
+      if (m) {
+        const a = isNumish(m[1]) ? parseFloat(clean(m[1])) : null;
+        const b = (m[2] && isNumish(m[2])) ? parseFloat(clean(m[2])) : null;
         return [a, b];
       }
     }
