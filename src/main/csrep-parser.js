@@ -64,25 +64,81 @@ function parseDomInBrowser() {
   };
 
   // Each metric card renders as "{value}{unit}" then "{label}" on the next
-  // line. Walk for a known label, take its previous line as the raw value.
-  const findBefore = (label) => {
-    for (let i = 1; i < lines.length; i++) if (lines[i] === label) return lines[i - 1];
-    return null;
+  // line. When csrep flags a metric as anomalous, it inserts a delta
+  // (e.g. "+1.14" / "-0.3%") and a verdict tag (e.g. "Highly Suspicious")
+  // directly after the label, before the next metric's value starts:
+  //   {value}
+  //   {label}
+  //   {delta}      ← optional
+  //   {verdict}    ← optional
+  //   {next value}
+  // Walk for a known label, take its previous line as the value, and
+  // peek the next 1-2 lines for delta+verdict. A delta starts with
+  // + or -; a verdict is one of a small known set.
+  const VERDICTS = new Set([
+    'Highly Suspicious', 'Very Suspicious', 'Suspicious',
+    'Slightly Suspicious', 'Normal', 'Legit', 'Clean',
+    'Insufficient Data',
+  ]);
+  const DELTA_RE = /^[+-]\d+(?:\.\d+)?%?$/;
+  const findMetric = (label) => {
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i] === label) {
+        const raw = lines[i - 1];
+        const l1 = lines[i + 1];
+        const l2 = lines[i + 2];
+        let delta = null, verdict = null;
+        if (l1 && DELTA_RE.test(l1)) {
+          const m = l1.match(/(-?\d+(?:\.\d+)?)/);
+          if (m) delta = parseFloat(m[1]);
+          if (l2 && VERDICTS.has(l2)) verdict = l2;
+        } else if (l1 && VERDICTS.has(l1)) {
+          // Some metrics render a verdict with no delta.
+          verdict = l1;
+        }
+        return { raw, delta, verdict };
+      }
+    }
+    return { raw: null, delta: null, verdict: null };
   };
-  const metrics = {
-    ttdMs:         parseNum(findBefore('Time to Damage')),
-    reactionMs:    parseNum(findBefore('Reaction Time')),
-    crosshairDeg:  parseNum(findBefore('Crosshair Placement')),
-    preaimDeg:     parseNum(findBefore('Preaim')),
-    kd:            parseNum(findBefore('K/D Ratio')),
-    adr:           parseNum(findBefore('ADR')),
-    aimAcc:        parsePct(findBefore('Aim Accuracy')),
-    headAcc:       parsePct(findBefore('Head Accuracy')),
-    wallbang:      parsePct(findBefore('Wallbang Kill %')),
-    smoke:         parsePct(findBefore('Smoke Kill %')),
-    hltvRating:    parseNum(findBefore('HLTV Rating 2.0')),
-    kast:          parsePct(findBefore('KAST')),
-  };
+  const LABELS = [
+    ['ttdMs',         'Time to Damage',   'num'],
+    ['reactionMs',    'Reaction Time',    'num'],
+    ['crosshairDeg',  'Crosshair Placement', 'num'],
+    ['preaimDeg',     'Preaim',           'num'],
+    ['kd',            'K/D Ratio',        'num'],
+    ['adr',           'ADR',              'num'],
+    ['aimAcc',        'Aim Accuracy',     'pct'],
+    ['headAcc',       'Head Accuracy',    'pct'],
+    ['wallbang',      'Wallbang Kill %',  'pct'],
+    ['smoke',         'Smoke Kill %',     'pct'],
+    ['hltvRating',    'HLTV Rating 2.0',  'num'],
+    ['kast',          'KAST',             'pct'],
+  ];
+  const metrics = {};
+  const metricDeltas = {};
+  const metricVerdicts = {};
+  for (const [key, label, kind] of LABELS) {
+    const { raw, delta, verdict } = findMetric(label);
+    metrics[key] = kind === 'pct' ? parsePct(raw) : parseNum(raw);
+    if (delta   != null) metricDeltas[key]   = delta;
+    if (verdict != null) metricVerdicts[key] = verdict;
+  }
+
+  // SBA is shown as just a delta on recent csrep layouts — there's no
+  // absolute score next to the "Stats Based Analysis" label. Grab the
+  // signed number that appears immediately after the label.
+  let sbaDelta = null;
+  {
+    const i = lines.indexOf('Stats Based Analysis');
+    if (i >= 0) {
+      const next = lines[i + 1];
+      if (next && DELTA_RE.test(next)) {
+        const m = next.match(/(-?\d+(?:\.\d+)?)/);
+        if (m) sbaDelta = parseFloat(m[1]);
+      }
+    }
+  }
 
   // Account Reputation block — csrep's DOM order doesn't match reading order.
   // Verified via a live probe, lines look like:
@@ -138,7 +194,10 @@ function parseDomInBrowser() {
     trustDebug,
     anomalies: pctNear('Anomalies Detected'),
     sba: pctNear('Stats Based Analysis'),
+    sbaDelta,
     metrics,
+    metricDeltas,
+    metricVerdicts,
     account,
   };
 }

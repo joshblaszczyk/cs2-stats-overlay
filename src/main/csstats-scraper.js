@@ -212,11 +212,14 @@ async function scrapePlayer(steamId64, existingPage) {
     try {
       const cr = await scrapeCsrepPage(page, steamId64);
       if (cr && (cr.trust != null || cr.anomalies != null)) {
-        data.csrepTrust     = cr.trust;
-        data.csrepAnomalies = cr.anomalies;
-        data.csrepSba       = cr.sba;
-        data.csrepMetrics   = cr.metrics || null;
-        data.csrepAccount   = cr.account || null;
+        data.csrepTrust          = cr.trust;
+        data.csrepAnomalies      = cr.anomalies;
+        data.csrepSba            = cr.sba;
+        data.csrepSbaDelta       = cr.sbaDelta;
+        data.csrepMetrics        = cr.metrics || null;
+        data.csrepMetricDeltas   = cr.metricDeltas && Object.keys(cr.metricDeltas).length ? cr.metricDeltas : null;
+        data.csrepMetricVerdicts = cr.metricVerdicts && Object.keys(cr.metricVerdicts).length ? cr.metricVerdicts : null;
+        data.csrepAccount        = cr.account || null;
       }
     } catch (err) {
       console.log(`[CSRep] ${steamId64} failed:`, err.message?.substring(0, 150));
@@ -301,11 +304,14 @@ async function topUpEntry(page, steamId64, data, missing) {
     try {
       const cr = await scrapeCsrepPage(page, steamId64);
       if (cr && (cr.trust != null || cr.anomalies != null)) {
-        out.csrepTrust     = cr.trust;
-        out.csrepAnomalies = cr.anomalies;
-        out.csrepSba       = cr.sba;
-        out.csrepMetrics   = cr.metrics || null;
-        out.csrepAccount   = cr.account || null;
+        out.csrepTrust          = cr.trust;
+        out.csrepAnomalies      = cr.anomalies;
+        out.csrepSba            = cr.sba;
+        out.csrepSbaDelta       = cr.sbaDelta;
+        out.csrepMetrics        = cr.metrics || null;
+        out.csrepMetricDeltas   = cr.metricDeltas && Object.keys(cr.metricDeltas).length ? cr.metricDeltas : null;
+        out.csrepMetricVerdicts = cr.metricVerdicts && Object.keys(cr.metricVerdicts).length ? cr.metricVerdicts : null;
+        out.csrepAccount        = cr.account || null;
         touched = true;
       }
     } catch (err) {

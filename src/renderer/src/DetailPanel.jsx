@@ -366,36 +366,69 @@ export default function DetailPanel({ player, settings, currentMap, pattern, liv
           return 'norm';
         };
         const colorOf = (t) => t === 'bad' ? '#de4848' : t === 'sus' ? '#e08b3c' : t === 'good' ? '#4eac87' : '#6b7180';
-        const Bar = ({ label, value, unit, barPct, tone: t }) => {
+        // Color a verdict tag by severity. "Highly Suspicious" → red,
+        // "Suspicious" → orange, "Normal"/"Legit" → green, "Insufficient
+        // Data" → muted. Fallback to gray for anything unrecognised.
+        const verdictColor = (v) => {
+          if (!v) return null;
+          if (/highly|very/i.test(v)) return '#de4848';
+          if (/suspicious/i.test(v)) return '#e08b3c';
+          if (/normal|legit|clean/i.test(v)) return '#4eac87';
+          return '#6b7180';
+        };
+        const fmtDelta = (d) => (d == null ? null : (d > 0 ? '+' : '') + d);
+        const Bar = ({ label, value, unit, barPct, tone: t, delta, verdict }) => {
           if (value == null) return null;
           const color = colorOf(t);
+          const vColor = verdictColor(verdict);
           return (
             <div className="dp-v-bar">
               <div className="dp-v-bar-row">
                 <span className="dp-v-bar-lbl">{label}</span>
-                <span className="dp-v-bar-val" style={{ color }}>{value}{unit || ''}</span>
+                <span className="dp-v-bar-val" style={{ color }}>
+                  {value}{unit || ''}
+                  {delta != null && (
+                    <span style={{ marginLeft: 6, fontSize: '0.85em', opacity: 0.8 }}>
+                      {fmtDelta(delta)}
+                    </span>
+                  )}
+                  {verdict && (
+                    <span style={{
+                      marginLeft: 6,
+                      fontSize: '0.75em',
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      background: (vColor || '#6b7180') + '22',
+                      color: vColor || '#6b7180',
+                    }}>
+                      {verdict}
+                    </span>
+                  )}
+                </span>
               </div>
               <div className="dp-v-bar-track"><div className="dp-v-bar-fill" style={{ width: `${Math.round(barPct)}%`, background: color }} /></div>
             </div>
           );
         };
+        const mD = cr.metricDeltas   || {};
+        const mV = cr.metricVerdicts || {};
         return (
           <div className="dp-v-section" data-src="csrep">
             <div className="dp-v-sec-title">CSREP ANALYSIS <span className="dp-v-src">csrep.gg</span></div>
             {cr.trust != null && <div className="dp-v-kv"><span>Trust Rating</span><strong style={{ color: cr.trust >= 80 ? '#4eac87' : cr.trust >= 60 ? '#6b7180' : cr.trust >= 40 ? '#e08b3c' : '#de4848' }}>{Math.round(cr.trust)}%</strong></div>}
-            {cr.sba != null && <div className="dp-v-kv"><span>Stats Based Analysis</span><strong style={{ color: cr.sba >= 80 ? '#4eac87' : cr.sba >= 60 ? '#6b7180' : cr.sba >= 40 ? '#e08b3c' : '#de4848' }}>{Math.round(cr.sba)}%</strong></div>}
-            <Bar label="K/D Ratio"       value={m.kd}           unit=""   barPct={pctBar(m.kd, 3)}                 tone={tone(m.kd, 0.7, 1.0, 1.5, 2.0)} />
-            <Bar label="ADR"             value={m.adr}          unit=""   barPct={pctBar(m.adr, 150)}              tone={tone(m.adr, 50, 70, 95, 120)} />
-            <Bar label="HLTV 2.0"        value={m.hltvRating}   unit=""   barPct={pctBar(m.hltvRating, 2)}         tone={tone(m.hltvRating, 0.9, 1.15, 1.5, 2.0)} />
-            <Bar label="KAST"            value={m.kast}         unit="%"  barPct={pctBar(m.kast, 100)}             tone={tone(m.kast, 60, 72, 85, 95)} />
-            <Bar label="Aim Accuracy"    value={m.aimAcc}       unit="%"  barPct={pctBar(m.aimAcc, 40)}            tone={tone(m.aimAcc, 10, 18, 25, 35)} />
-            <Bar label="Head Accuracy"   value={m.headAcc}      unit="%"  barPct={pctBar(m.headAcc, 60)}           tone={tone(m.headAcc, 15, 25, 35, 50)} />
-            <Bar label="Reaction"        value={m.reactionMs}   unit="ms" barPct={pctBar(m.reactionMs, 800, true)} tone={tone(m.reactionMs, 700, 400, 300, 200, true)} />
-            <Bar label="Time to Damage"  value={m.ttdMs}        unit="ms" barPct={pctBar(m.ttdMs, 1000, true)}     tone={tone(m.ttdMs, 1000, 500, 400, 300, true)} />
-            <Bar label="Preaim"          value={m.preaimDeg}    unit="°"  barPct={pctBar(m.preaimDeg, 20, true)}   tone={tone(m.preaimDeg, 15, 8, 5, 3, true)} />
-            <Bar label="Crosshair"       value={m.crosshairDeg} unit="°"  barPct={pctBar(m.crosshairDeg, 20, true)} tone={tone(m.crosshairDeg, 15, 8, 4, 2, true)} />
-            <Bar label="Wallbang Kill"   value={m.wallbang}     unit="%"  barPct={pctBar(m.wallbang, 10)}          tone={tone(m.wallbang, null, 1.5, 3, 7)} />
-            <Bar label="Smoke Kill"      value={m.smoke}        unit="%"  barPct={pctBar(m.smoke, 10)}             tone={tone(m.smoke, null, 1.5, 3, 7)} />
+            {cr.sbaDelta != null && <div className="dp-v-kv"><span>Stats Based Analysis</span><strong style={{ color: cr.sbaDelta <= -10 ? '#de4848' : cr.sbaDelta < 0 ? '#e08b3c' : '#4eac87' }}>{fmtDelta(cr.sbaDelta)}%</strong></div>}
+            <Bar label="K/D Ratio"       value={m.kd}           unit=""   barPct={pctBar(m.kd, 3)}                  tone={tone(m.kd, 0.7, 1.0, 1.5, 2.0)}                           delta={mD.kd}          verdict={mV.kd} />
+            <Bar label="ADR"             value={m.adr}          unit=""   barPct={pctBar(m.adr, 150)}               tone={tone(m.adr, 50, 70, 95, 120)}                             delta={mD.adr}         verdict={mV.adr} />
+            <Bar label="HLTV 2.0"        value={m.hltvRating}   unit=""   barPct={pctBar(m.hltvRating, 2)}          tone={tone(m.hltvRating, 0.9, 1.15, 1.5, 2.0)}                  delta={mD.hltvRating}  verdict={mV.hltvRating} />
+            <Bar label="KAST"            value={m.kast}         unit="%"  barPct={pctBar(m.kast, 100)}              tone={tone(m.kast, 60, 72, 85, 95)}                             delta={mD.kast}        verdict={mV.kast} />
+            <Bar label="Aim Accuracy"    value={m.aimAcc}       unit="%"  barPct={pctBar(m.aimAcc, 40)}             tone={tone(m.aimAcc, 10, 18, 25, 35)}                           delta={mD.aimAcc}      verdict={mV.aimAcc} />
+            <Bar label="Head Accuracy"   value={m.headAcc}      unit="%"  barPct={pctBar(m.headAcc, 60)}            tone={tone(m.headAcc, 15, 25, 35, 50)}                          delta={mD.headAcc}     verdict={mV.headAcc} />
+            <Bar label="Reaction"        value={m.reactionMs}   unit="ms" barPct={pctBar(m.reactionMs, 800, true)}  tone={tone(m.reactionMs, 700, 400, 300, 200, true)}             delta={mD.reactionMs}  verdict={mV.reactionMs} />
+            <Bar label="Time to Damage"  value={m.ttdMs}        unit="ms" barPct={pctBar(m.ttdMs, 1000, true)}      tone={tone(m.ttdMs, 1000, 500, 400, 300, true)}                 delta={mD.ttdMs}       verdict={mV.ttdMs} />
+            <Bar label="Preaim"          value={m.preaimDeg}    unit="°"  barPct={pctBar(m.preaimDeg, 20, true)}    tone={tone(m.preaimDeg, 15, 8, 5, 3, true)}                     delta={mD.preaimDeg}   verdict={mV.preaimDeg} />
+            <Bar label="Crosshair"       value={m.crosshairDeg} unit="°"  barPct={pctBar(m.crosshairDeg, 20, true)} tone={tone(m.crosshairDeg, 15, 8, 4, 2, true)}                  delta={mD.crosshairDeg} verdict={mV.crosshairDeg} />
+            <Bar label="Wallbang Kill"   value={m.wallbang}     unit="%"  barPct={pctBar(m.wallbang, 10)}           tone={tone(m.wallbang, null, 1.5, 3, 7)}                        delta={mD.wallbang}    verdict={mV.wallbang} />
+            <Bar label="Smoke Kill"      value={m.smoke}        unit="%"  barPct={pctBar(m.smoke, 10)}              tone={tone(m.smoke, null, 1.5, 3, 7)}                           delta={mD.smoke}       verdict={mV.smoke} />
           </div>
         );
       })()}

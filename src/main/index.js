@@ -196,7 +196,10 @@ function runCsstatsScrape(steamIds, roundPhase) {
           csrepTrust: cs.csrepTrust ?? null,
           csrepAnomalies: cs.csrepAnomalies ?? null,
           csrepSba: cs.csrepSba ?? null,
+          csrepSbaDelta: cs.csrepSbaDelta ?? null,
           csrepMetrics: cs.csrepMetrics ?? null,
+          csrepMetricDeltas: cs.csrepMetricDeltas ?? null,
+          csrepMetricVerdicts: cs.csrepMetricVerdicts ?? null,
           csrepAccount: cs.csrepAccount ?? null,
           csstats: {
             kd: cs.kd, hltvRating: cs.hltvRating, winRate: cs.winRate,

@@ -27,7 +27,10 @@ function mergeScrapedIntoPlayer(player, sd) {
       trust: sd.csrepTrust,
       anomalies: sd.csrepAnomalies,
       sba: sd.csrepSba,
+      sbaDelta: sd.csrepSbaDelta ?? null,
       metrics: sd.csrepMetrics || null,
+      metricDeltas: sd.csrepMetricDeltas || null,
+      metricVerdicts: sd.csrepMetricVerdicts || null,
       account: sd.csrepAccount || null,
     };
   }
