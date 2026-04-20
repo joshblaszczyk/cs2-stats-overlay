@@ -58,7 +58,9 @@ function registerWindowHandlers(ipcMain, ctx) {
   ipcMain.on('set-click-through', (_e, enabled) => {
     const win = ctx.getWin();
     if (!win) return;
-    if (enabled) win.setIgnoreMouseEvents(true, { forward: true });
+    // No `forward: true` — hit-testing is handled in the renderer via our
+    // own cursor polling (see showOverlay in index.js for the rationale).
+    if (enabled) win.setIgnoreMouseEvents(true);
     else win.setIgnoreMouseEvents(false);
   });
 
@@ -81,7 +83,7 @@ function registerWindowHandlers(ipcMain, ctx) {
       win.focus();
       console.log('[Main] Settings pinned — overlay interactive');
     } else {
-      win.setIgnoreMouseEvents(true, { forward: true });
+      win.setIgnoreMouseEvents(true);
       // If TAB isn't held, the user's done — hide overlay.
       if (!ctx.isTabDown()) {
         win.hide();

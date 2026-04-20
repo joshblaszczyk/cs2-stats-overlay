@@ -338,8 +338,15 @@ function showOverlay() {
   win.showInactive();
   // Settings panel owns input-mode while open — flipping to click-through
   // mid-interaction leaves mousedown/mouseup unbalanced and drag state stuck.
+  //
+  // NOTE: no `forward: true`. Hit-testing is driven by our own GetCursorPos
+  // polling + cursor-pos IPC (see renderer onCursorPos handler), so we don't
+  // need Electron to forward WM_MOUSEMOVE into the renderer. Forwarding was
+  // causing intermittent cursor stalls in CS2 when the main process briefly
+  // blocked on puppeteer / koffi calls — queued forwarded events back-pressured
+  // Windows' input delivery while the overlay was topmost.
   if (!settingsPinned) {
-    win.setIgnoreMouseEvents(true, { forward: true });
+    win.setIgnoreMouseEvents(true);
   }
   win.webContents.send('overlay-toggle', true);
   // Restore the user's configured frame rate now that we're visible again.
@@ -852,14 +859,22 @@ app.whenReady().then(() => {
   // the window can't receive real mouse events. Interval reflects perf mode.
   let cursorPollTimer = null;
   let currentCursorInterval = 0;
+  // Reuse one buffer across polls — allocating per-tick adds GC pressure to
+  // the main loop, which is exactly the hot path we don't want to stall.
+  const cursorBuf = Buffer.alloc(8);
+  // Last sample sent to the renderer. Used to skip IPC when nothing changed —
+  // sending identical cursor-pos 30-60×/s wakes the renderer for no reason
+  // and adds main-thread churn that can back up mouse input forwarding.
+  let lastCursorX = -1, lastCursorY = -1, lastCursorLmb = false;
   function pollCursor() {
     if (!win || !GetCursorPos) return;
     if (!tabDown && !settingsPinned) return;
-    const buf = Buffer.alloc(8);
-    GetCursorPos(buf);
-    const x = buf.readInt32LE(0);
-    const y = buf.readInt32LE(4);
+    GetCursorPos(cursorBuf);
+    const x = cursorBuf.readInt32LE(0);
+    const y = cursorBuf.readInt32LE(4);
     const lmb = (GetAsyncKeyState(0x01) & 0x8000) !== 0;
+    if (x === lastCursorX && y === lastCursorY && lmb === lastCursorLmb) return;
+    lastCursorX = x; lastCursorY = y; lastCursorLmb = lmb;
     try {
       const b = win.getBounds();
       // Cursor coords come in physical pixels. getBoundingClientRect in the
