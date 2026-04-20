@@ -30,12 +30,14 @@ function registerDiagnosticsHandlers(ipcMain, ctx) {
   });
 
   // Probe: actually try to scrape the local player to distinguish "csstats
-  // is fine" from "silent failure". If the module already knows it's in
-  // cooldown, trust that state and skip the probe.
+  // is fine" from "silent failure". If the worker already knows it's in
+  // cooldown, trust that state and skip the probe. All the browser +
+  // page-lifecycle work happens inside the worker now — this handler is
+  // just a single round-trip.
   ipcMain.handle('get-csstats-status', async () => {
     try {
-      const scraper = require('../csstats-scraper');
-      const base = scraper.getCsstatsStatus ? scraper.getCsstatsStatus() : {};
+      const scraper = require('../scrape-client');
+      const base = scraper.getCsstatsStatus();
       if (base.rateLimited) return { ...base, probed: false };
 
       const lastSteamIds = ctx.getLastSteamIds();
@@ -44,34 +46,7 @@ function registerDiagnosticsHandlers(ipcMain, ctx) {
         return { ...base, probed: false, unknown: true, message: 'No local player yet' };
       }
 
-      let data = null;
-      try {
-        const b = await scraper.ensureBrowser();
-        const page = await b.newPage();
-        try {
-          data = await scraper.scrapePlayer(probeId, page);
-        } finally {
-          try { await page.close(); } catch {}
-        }
-        console.log('[CSProbe] steamId=%s keys=%j data=%j', probeId,
-          data ? Object.keys(data) : null,
-          data ? JSON.stringify(data).slice(0, 600) : null);
-      } catch (err) {
-        // RateLimitedError bubble from ensureBrowser / newPage.
-        const isRL = err && (err.name === 'RateLimitedError' || /rate.?limit|1015|cloudflare/i.test(err.message || ''));
-        return {
-          ...scraper.getCsstatsStatus(),
-          probed: true,
-          rateLimited: isRL || base.rateLimited,
-          error: err.message,
-        };
-      }
-
-      // Probe passes if ANY meaningful field came back — a fully private
-      // profile would still be "csstats is fine, this player is private".
-      const ok = data && (data.kd != null || data.premier != null || data.faceitLevel != null);
-      const after = scraper.getCsstatsStatus ? scraper.getCsstatsStatus() : base;
-      return { ...after, probed: true, rateLimited: after.rateLimited || !ok, probeOk: ok, probeId };
+      return await scraper.probe(probeId);
     } catch (err) {
       return { error: err.message };
     }

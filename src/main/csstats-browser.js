@@ -31,6 +31,13 @@ let browser = null;
 let currentPage = null;
 
 function getUserDataDir() {
+  // In the forked scrape-worker process ELECTRON_RUN_AS_NODE is set, so
+  // require('electron') doesn't return the Electron app API. Main passes
+  // userData through USER_DATA_DIR so the worker writes to the same
+  // browser-data dir as before the split (keeps cf_clearance cookies etc).
+  if (process.env.USER_DATA_DIR) {
+    return path.join(process.env.USER_DATA_DIR, 'browser-data');
+  }
   try {
     const { app } = require('electron');
     if (app && app.getPath) {

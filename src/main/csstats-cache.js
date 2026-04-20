@@ -39,6 +39,12 @@ let diskSaveTimer = null;
 // userData/csstats-cache.json (roaming across app updates); in dev it
 // sits at the project root so a `git clean` wipes it.
 function getDiskCachePath() {
+  // Forked scrape-worker runs with ELECTRON_RUN_AS_NODE, so require('electron')
+  // doesn't expose `app`. Main passes the real userData path through
+  // USER_DATA_DIR — use it first so main + worker share one cache file.
+  if (process.env.USER_DATA_DIR) {
+    return path.join(process.env.USER_DATA_DIR, 'csstats-cache.json');
+  }
   try {
     const { app } = require('electron');
     if (app && app.getPath) {

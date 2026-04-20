@@ -98,7 +98,7 @@ function loadNativeModules() {
     }
   };
   try { require('./leetify-api').setStatusReporter(reportStatus); } catch {}
-  try { require('./csstats-scraper').setStatusReporter(reportStatus); } catch {}
+  try { require('./scrape-client').setStatusReporter(reportStatus); } catch {}
 
   koffi = require('koffi');
   const user32 = koffi.load('user32.dll');
@@ -180,7 +180,7 @@ function runCsstatsScrape(steamIds, roundPhase) {
   // Immediate kickoff — no artificial delay
   (async () => {
     try {
-      const { scrapeAllPlayers } = require('./csstats-scraper');
+      const { scrapeAllPlayers } = require('./scrape-client');
       const cssData = await scrapeAllPlayers(toScrape);
       // Only mark IDs as scraped when they actually returned data. If a scrape
       // failed (rate-limit, page timeout, private profile), leave it out of
@@ -754,8 +754,13 @@ app.whenReady().then(() => {
   loadNativeModules();
   startWorker();
 
-  // Puppeteer/Chrome is spawned lazily on the first real scrape. No pre-warm —
-  // opening Chrome in the background while the user is in a menu was confusing.
+  // Fork the scrape worker eagerly — spins up a Node child process that owns
+  // puppeteer + csstats/csrep scraping. Chrome itself is still lazy (first
+  // real scrape). Forking now just pays the ~200ms module-load cost up front
+  // so the first scrape isn't measurably slower than subsequent ones.
+  try { require('./scrape-client').start(); } catch (err) {
+    console.log('[Main] scrape-client.start failed:', err.message);
+  }
 
   // All renderer-facing IPC handlers live in src/main/ipc/. Register them
   // in one place so index.js doesn't carry ~350 lines of handler soup.
@@ -1026,7 +1031,7 @@ app.on('before-quit', (e) => {
   }
   console.log('[Main] Quitting — cleaning up everything...');
   cleanupSteam();
-  try { const { shutdownScraper } = require('./csstats-scraper'); shutdownScraper(); } catch {}
+  try { const { shutdownScraper } = require('./scrape-client'); shutdownScraper(); } catch {}
   if (tray) { tray.destroy(); tray = null; }
   if (worker && worker.connected) { try { worker.kill(); } catch {} }
   if (gsiServer) {

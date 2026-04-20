@@ -110,7 +110,7 @@ function registerSettingsHandlers(ipcMain, ctx) {
 
   ipcMain.handle('login-csstats', async () => {
     try {
-      const { loginToCsstats } = require('../csstats-scraper');
+      const { loginToCsstats } = require('../scrape-client');
       return await loginToCsstats();
     } catch (err) {
       console.log('[Setup] csstats login error:', err.message);
@@ -156,7 +156,7 @@ function registerSettingsHandlers(ipcMain, ctx) {
 
   ipcMain.handle('clear-csstats-session', async () => {
     try {
-      const { shutdownScraper } = require('../csstats-scraper');
+      const { shutdownScraper } = require('../scrape-client');
       if (shutdownScraper) await shutdownScraper();
       const bdir = path.join(app.getPath('userData'), 'browser-data');
       if (fs.existsSync(bdir)) fs.rmSync(bdir, { recursive: true, force: true });
